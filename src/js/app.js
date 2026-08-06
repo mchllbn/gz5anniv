@@ -1,6 +1,7 @@
 /**
  * Phase state machine:
  * idle → setup → capture → customize → (print) → idle
+ * idle → album → printing → idle
  * Order is enforced — phases cannot be skipped forward accidentally.
  */
 
@@ -11,15 +12,17 @@ export const Phase = Object.freeze({
   SETUP: 'setup',
   CAPTURE: 'capture',
   CUSTOMIZE: 'customize',
+  ALBUM: 'album',
   PRINTING: 'printing',
 });
 
 const ALLOWED = {
-  [Phase.IDLE]: [Phase.SETUP],
+  [Phase.IDLE]: [Phase.SETUP, Phase.ALBUM],
   [Phase.SETUP]: [Phase.CAPTURE, Phase.IDLE],
   [Phase.CAPTURE]: [Phase.CUSTOMIZE, Phase.SETUP, Phase.IDLE],
-  [Phase.CUSTOMIZE]: [Phase.CAPTURE, Phase.SETUP, Phase.PRINTING, Phase.IDLE],
-  [Phase.PRINTING]: [Phase.CUSTOMIZE, Phase.IDLE],
+  [Phase.CUSTOMIZE]: [Phase.CAPTURE, Phase.SETUP, Phase.ALBUM, Phase.PRINTING, Phase.IDLE],
+  [Phase.ALBUM]: [Phase.IDLE, Phase.PRINTING, Phase.CUSTOMIZE],
+  [Phase.PRINTING]: [Phase.CUSTOMIZE, Phase.ALBUM, Phase.IDLE],
 };
 
 /** @type {{ phase: string, session: object, listeners: Set<Function> }} */
@@ -52,6 +55,8 @@ export function freshSession(defaults = {}) {
     safeBounds: false,
     printCopies: 1,
     capturing: false,
+    albumSelectedIds: [],
+    printMode: 'strip', // 'strip' | 'a4'
   };
 }
 

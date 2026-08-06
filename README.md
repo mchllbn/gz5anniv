@@ -32,8 +32,60 @@ Variable **`wght`** axes and `font-optical-sizing: auto` per [Using variable fon
 
 - Windows 10/11
 - Node.js 20+ LTS
-- Webcam
+- **Sony A5000 (or compatible DSLR)** via digiCamControl for print-quality stills, *or* a webcam for preview-only testing
 - Photo printer + drivers, 2×6" and/or 4×6 paper loaded
+
+### Fujifilm X-T2 + HDMI capture card (your setup)
+
+No USB tether and **no usbipd** needed. Camera **micro HDMI** → capture card → PC shows **USB Video** (`534d:2109` in Device Manager).
+
+1. In booth **Setup**, choose the **USB Video** camera (not a random webcam).
+2. Settings → shutter backend **HDMI capture card** (default in `config.json`).
+3. **Begin Capture** grabs a frame from that HDMI feed (what guests see in preview) — **not** the Windows desktop.
+4. Fuji HDMI is usually **clean** (no AF/ISO overlays like the old Sony USB preview).
+
+For **full-resolution RAW/JPEG from the sensor**, you would need a **second USB cable** in tether mode + gPhoto2 — optional, not your current wiring.
+
+### Fujifilm X-T2 + USB tether (optional)
+
+digiCamControl does **not** reliably tether the X-T2. Use **gPhoto2** so **Begin Capture** fires the **camera shutter** and downloads the file — the on-screen preview is **only for framing**, not what gets printed.
+
+1. Camera: **SET UP → CONNECTION SETTING → PC CONNECTION MODE → USB TETHER SHOOTING AUTO**
+2. Close **FUJIFILM X Acquire / Tether App** while the booth is capturing (they lock USB).
+3. Install gPhoto2 in WSL (`sudo apt install gphoto2`), then **pass USB to WSL** (required on Windows):
+   ```powershell
+   # Admin PowerShell — see scripts/fuji-usb-wsl.ps1
+   winget install dorssel.usbipd-win
+   usbipd list
+   usbipd bind --busid 2-3
+   usbipd attach --wsl --busid 2-3
+   wsl gphoto2 --auto-detect
+   ```
+4. Run **`npm start`** (Electron). Settings → **Camera shutter capture** on, backend **gPhoto2**.
+5. Optional preview: webcam or HDMI feed for guests; strips still come from shutter files.
+
+### Sony A5000 + digiCamControl (legacy)
+
+Strips must use **real shutter files**, not live-view frames. Live view includes the camera’s side icons (ISO, AF-S, etc.) and that is what was printing on your strips.
+
+1. Install [digiCamControl](https://digicamcontrol.com/) (default path `C:\Program Files\digiCamControl\`).
+2. On the A5000 (digiCamControl — **Wi‑Fi only**, USB PC Remote will **not** show the camera):
+   - Menu → **Application** → **Smart Remote Control** (not PC Remote)
+   - On the PC: connect to the camera’s Wi‑Fi network (SSID + password on the camera screen)
+   - Open **digiCamControl** → **Wi‑Fi** button (top bar) → **Sony device**
+   - Image quality → **RAW+JPEG** (booth uses JPEG)
+   - Press **DISP** until shooting overlays are off (clean preview if using USB/video for setup)
+3. Close **Imaging Edge** / other apps that lock the camera.
+4. In this app: use **Remote** mode (default in `config.json`) with digiCamControl **running**.
+5. Modes:
+   - **`remote`** (recommended for α5000): digiCamControl open + Wi‑Fi connected → `CameraControlRemoteCmd`
+   - **`http`**: same, plus digiCamControl **Settings → Webserver** enabled (port 5513)
+   - **`cmd`**: USB tether only — **does not work** for Sony α5000 in digiCamControl
+6. Run `npm start` (Electron). Begin Capture fires the shutter; strips load the downloaded JPEG (no OSD).
+
+Optional paths in `config.camera`: `cmdPath`, `remoteCmdPath`, `watchFolder`, `archiveFolder`.
+
+RAW files are copied to `%APPDATA%/<app>/raw-archive` when `archiveRaw` is true.
 
 ## Quick start
 
@@ -160,6 +212,9 @@ App prints silent, marginless, 2×6 page size.
 | `canvas` | 600×1800 @ 300 DPI; `scale: 2` → 1200×3600 |
 | `printerName` / `copies` | Silent print |
 | `debugSlots` | Green slot outlines on composite |
+| `camera.backend` | `digicamcontrol` = real shutter JPEG; `webcam` = grab live preview |
+| `camera.mode` | `cmd` or `remote` (digiCamControl) |
+| `camera.archiveRaw` | Copy `.ARW` into raw-archive folder |
 
 ---
 
@@ -168,6 +223,11 @@ App prints silent, marginless, 2×6 page size.
 | Issue | Fix |
 |-------|-----|
 | Camera blocked | Address-bar camera icon → Allow; Windows Privacy → Camera |
+| Strip shows AF-S / ISO / side icons | Live-view grab — enable digiCamControl shutter; press **DISP** for clean preview |
+| digiCamControl “no camera” / remote empty | **α5000 = Wi‑Fi Smart Remote Control**, not USB; connect PC to camera Wi‑Fi → Wi‑Fi → Sony in DCC |
+| gPhoto2 code 1 / no camera in WSL | Install **usbipd-win**, `usbipd attach --wsl --busid …`; close X Acquire on Windows; TETHER SHOOTING AUTO |
+| digiCamControl not found | Install it; or set `camera.cmdPath` / `camera.remoteCmdPath` |
+| Capture timeout / no file | USB=PC Remote; RAW+JPEG; close Imaging Edge; use matching cmd vs remote mode |
 | Wrong paper / crop | Set driver default to 2×6 borderless; Test print |
 | Silent print fails | Exact printer name; update drivers; check logs |
 | Frame missing for N photos | Add a template with the matching `"formatId"` + `"photoCount": N` |
@@ -189,4 +249,4 @@ Logs (packaged): `%APPDATA%/<app>/logs/photobooth.log`
 
 ## Out of scope (v1)
 
-Payments, QR/cloud gallery, AI beauty filters, phone remote, macOS/Linux primary.
+Payments, QR/cloud gallery, AI beauty filters, phone remote, macOS/Linux primary. RAW develop/print pipeline (booth prints from JPEG companion).

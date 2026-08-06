@@ -1,5 +1,5 @@
 /**
- * UI wiring for phase flow: idle → setup → capture → customize → print → idle
+ * UI wiring for phase flow: idle → setup → capture → customize → album → print → idle
  */
 
 import {
@@ -30,8 +30,11 @@ import {
   listCameras,
   permissionDeniedMessage,
   waitForVideo,
+  usesTetherCapture,
+  startSessionPreview,
+  stopSessionPreview,
 } from './camera.js';
-import { runCaptureSession, revokeShots } from './capture.js';
+import { runCaptureSession, revokeShots, makeRemoteCaptureStill } from './capture.js';
 import { FILTERS, ADJUST_CONTROLS, DEFAULT_ADJUSTMENTS, normalizeAdjustments } from './filters.js';
 import {
   templatesForFormatCount,
@@ -40,7 +43,15 @@ import {
   clearTemplateCache,
   loadTemplateImage,
 } from './frames.js';
-import { composeStrip, canvasToPngBase64, drawPreview } from './compose.js';
+import {
+  composeStrip,
+  canvasToPngBase64,
+  drawPreview,
+  composePrintSheet,
+  STRIP_PRINT_SHEET,
+  POLAROID_PRINT_SHEET,
+  singlePrintPageInches,
+} from './compose.js';
 import {
   STICKER_CATALOG,
   stickerThumbCanvas,
@@ -50,6 +61,17 @@ import {
   getStickerDef,
   createLockedBrandElements,
 } from './stickers.js';
+import {
+  MAX_SHEET_ITEMS,
+  loadAlbum,
+  addStripToAlbum,
+  removeStripFromAlbum,
+  getAlbumStripsByIds,
+  makeAlbumThumb,
+  normalizeStripForAlbum,
+  loadPngBase64,
+  albumCount,
+} from './album.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -434,6 +456,7 @@ function detachSetupPreviewVideos() {
 
 async function startSetupPreview() {
   const video = $('setup-preview');
+  const img = $('setup-preview-liveview');
   const wrap = $('setup-camera-wrap');
   const hint = $('setup-preview-hint');
   if (!video) return;
@@ -441,15 +464,24 @@ async function startSetupPreview() {
   hint.hidden = true;
   hint.textContent = '';
   wrap?.classList.remove('is-error');
+  updateCaptureSourceHint();
 
   const session = getSession();
+  const cfg = getConfig();
   try {
-    await startCamera(video, {
+    await startSessionPreview({
+      videoEl: video,
+      imgEl: img,
+      cfg,
       deviceId: session.deviceId || undefined,
       mirror: session.mirrorPreview !== false,
     });
-    await waitForVideo(video, 8000);
-    syncSetupPreviewVideos();
+    if (!img?.hidden) {
+      syncSetupPreviewVideos();
+    } else {
+      await waitForVideo(video, 8000);
+      syncSetupPreviewVideos();
+    }
     await populateCameras();
   } catch (err) {
     if (hint) {
@@ -461,9 +493,30 @@ async function startSetupPreview() {
   }
 }
 
+function updateCaptureSourceHint() {
+  const el = $('capture-source-hint');
+  if (!el) return;
+  const cfg = getConfig();
+  if (usesTetherCapture(cfg)) {
+    const dual = cfg.camera?.previewSource === 'capture-card';
+    const b = cfg.camera?.backend === 'gphoto2' ? 'gPhoto2' : 'digiCamControl';
+    el.textContent = dual
+      ? `${b}: live view = HDMI (USB Video) · Begin Capture = real shutter + file download (JPEG on strip, RAW archived if enabled).`
+      : `Begin Capture fires ${b} shutter (not a screenshot).`;
+    el.hidden = false;
+  } else if (cfg.camera?.backend === 'capture-card') {
+    el.textContent =
+      'HDMI capture card: Begin Capture saves a frame from the camera HDMI feed (USB Video device) — not your Windows desktop.';
+    el.hidden = false;
+  } else {
+    el.textContent = 'Begin Capture saves what you see in the live preview.';
+    el.hidden = false;
+  }
+}
+
 async function stopSetupPreviewCompletely() {
   detachSetupPreviewVideos();
-  await stopCamera($('setup-preview'));
+  await stopSessionPreview({ videoEl: $('setup-preview'), imgEl: $('setup-preview-liveview') });
 }
 
 function handoffSetupPreviewToCapture() {
@@ -474,13 +527,37 @@ function handoffSetupPreviewToCapture() {
   captureVideo.srcObject = getStream();
 }
 
+function backendToUi(cfg) {
+  const b = cfg.camera?.backend;
+  if (b === 'gphoto2' && cfg.camera?.previewSource === 'capture-card') return 'dual';
+  return b === 'digicamcontrol' ? 'digicamcontrol' : b === 'gphoto2' ? 'gphoto2' : b === 'webcam' ? 'webcam' : 'capture-card';
+}
+
+function uiToBackend(uiValue) {
+  if (uiValue === 'dual') return { backend: 'gphoto2', previewSource: 'capture-card' };
+  if (uiValue === 'capture-card') return { backend: 'capture-card', previewSource: 'capture-card' };
+  if (uiValue === 'gphoto2') return { backend: 'gphoto2', previewSource: 'webcam' };
+  return { backend: uiValue || 'capture-card', previewSource: 'webcam' };
+}
+
+function usesHdmiPreview(cfg) {
+  return cfg.camera?.previewSource === 'capture-card' || cfg.camera?.backend === 'capture-card';
+}
+
 async function populateCameras() {
   const field = $('camera-field');
   const select = $('setup-camera');
+  const cfg = getConfig();
   try {
-    // May be empty until permission granted
     const cams = await listCameras();
-    if (cams.length <= 1) {
+    const prefer = (cfg.camera?.preferredDeviceLabel || 'USB Video').toLowerCase();
+    const session = getSession();
+    if (!session.deviceId && usesHdmiPreview(cfg)) {
+      const match = cams.find((c) => (c.label || '').toLowerCase().includes(prefer));
+      if (match) patchSession({ deviceId: match.deviceId });
+    }
+    const showPicker = cams.length > 1 || usesHdmiPreview(cfg);
+    if (!showPicker || !cams.length) {
       field.hidden = true;
       return;
     }
@@ -492,8 +569,12 @@ async function populateCameras() {
       opt.textContent = cam.label || `Camera ${select.options.length + 1}`;
       select.appendChild(opt);
     }
-    const session = getSession();
-    if (session.deviceId) select.value = session.deviceId;
+    const deviceId = getSession().deviceId;
+    if (deviceId) select.value = deviceId;
+    else if (usesHdmiPreview(cfg)) {
+      const match = cams.find((c) => (c.label || '').toLowerCase().includes(prefer));
+      if (match) select.value = match.deviceId;
+    }
   } catch {
     field.hidden = true;
   }
@@ -548,12 +629,20 @@ async function startCapture() {
       await startCamera(video, {
         deviceId: session.deviceId || undefined,
         mirror: session.mirrorPreview !== false,
+        cfg: getConfig(),
       });
       await waitForVideo(video);
     }
     await populateCameras();
 
     patchSession({ capturing: true });
+    const tether = usesTetherCapture(cfg);
+    const captureStill = tether
+      ? makeRemoteCaptureStill({
+          mirrorCapture: cfg.camera?.mirrorCapture === true,
+          fallbackToWebcam: cfg.camera?.fallbackToWebcam === true,
+        })
+      : null;
     const shots = await runCaptureSession({
       video,
       countdownEl: $('countdown'),
@@ -562,6 +651,8 @@ async function startCapture() {
       countdownSeconds: session.countdownSeconds,
       pauseBetweenMs: cfg.pauseBetweenShotsMs || 700,
       mirror: session.mirrorPreview !== false,
+      captureStill,
+      tetherCapture: tether,
       shouldAbort: () => abortCapture,
       onProgress: (i, n, shotsSoFar = []) => {
         syncCaptureFrameAspect(i);
@@ -634,7 +725,16 @@ async function renderCustomize() {
 }
 
 function customizeActionEls() {
-  return ['btn-print', 'btn-save', 'btn-retake', 'btn-start-over'].map($).filter(Boolean);
+  return [
+    'btn-print',
+    'btn-save-album',
+    'btn-save',
+    'btn-open-album-from-customize',
+    'btn-retake',
+    'btn-start-over',
+  ]
+    .map($)
+    .filter(Boolean);
 }
 
 function setCustomizeActionsEnabled(on) {
@@ -1204,6 +1304,226 @@ async function startOver() {
   go(Phase.IDLE, { force: true });
 }
 
+function printSheetForAlbumItems(strips) {
+  const polaroid = (strips || []).every((s) => String(s.formatId || '').includes('polaroid'));
+  return polaroid ? POLAROID_PRINT_SHEET : STRIP_PRINT_SHEET;
+}
+
+function sheetSizeLabel(sheet) {
+  return `${sheet.widthCm}×${sheet.heightCm} cm landscape`;
+}
+
+/* ——— Album ——— */
+async function openAlbum({ preselectId = null, fromCustomize = false } = {}) {
+  const selected = [];
+  if (preselectId) selected.push(preselectId);
+  else if (Array.isArray(getSession().albumSelectedIds)) {
+    selected.push(...getSession().albumSelectedIds.slice(0, MAX_SHEET_ITEMS));
+  }
+  patchSession({ albumSelectedIds: selected });
+  await renderAlbum();
+  go(Phase.ALBUM, { force: fromCustomize || getPhase() === Phase.IDLE });
+}
+
+function formatAlbumDate(iso) {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function syncAlbumSelectionMeta() {
+  const n = (getSession().albumSelectedIds || []).length;
+  setText($('album-selection-meta'), `${n} of ${MAX_SHEET_ITEMS} selected`);
+  const printBtn = $('btn-album-print');
+  if (printBtn) printBtn.disabled = n < 1;
+}
+
+function toggleAlbumSelection(id) {
+  const current = [...(getSession().albumSelectedIds || [])];
+  const idx = current.indexOf(id);
+  if (idx >= 0) {
+    current.splice(idx, 1);
+  } else {
+    if (current.length >= MAX_SHEET_ITEMS) {
+      setText(
+        $('album-status'),
+        `Sheet fits ${MAX_SHEET_ITEMS} items max — deselect one first.`
+      );
+      return;
+    }
+    current.push(id);
+    setText($('album-status'), '');
+  }
+  patchSession({ albumSelectedIds: current });
+  void renderAlbum();
+}
+
+async function renderAlbum() {
+  const grid = $('album-grid');
+  const empty = $('album-empty');
+  if (!grid) return;
+  const items = await loadAlbum();
+  const selected = new Set(getSession().albumSelectedIds || []);
+  grid.innerHTML = '';
+
+  if (!items.length) {
+    if (empty) empty.hidden = false;
+    syncAlbumSelectionMeta();
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  for (const item of items) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'album-card' + (selected.has(item.id) ? ' is-selected' : '');
+    btn.setAttribute('role', 'listitem');
+    btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
+    btn.dataset.id = item.id;
+
+    const img = document.createElement('img');
+    img.className = 'album-card-thumb';
+    img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
+    img.alt = `Strip from ${formatAlbumDate(item.createdAt)}`;
+    img.draggable = false;
+
+    const meta = document.createElement('span');
+    meta.className = 'album-card-meta';
+    meta.textContent = formatAlbumDate(item.createdAt);
+
+    btn.append(img, meta);
+    btn.addEventListener('click', () => toggleAlbumSelection(item.id));
+    grid.appendChild(btn);
+  }
+  syncAlbumSelectionMeta();
+}
+
+async function saveCurrentStripToAlbum({ openAfter = false } = {}) {
+  await ensureComposedForExport();
+  const session = getSession();
+  const pngBase64 = await normalizeStripForAlbum(session.pngBase64);
+  let thumbDataUrl;
+  try {
+    thumbDataUrl = await makeAlbumThumb(pngBase64);
+  } catch {
+    thumbDataUrl = `data:image/png;base64,${pngBase64}`;
+  }
+  const items = await addStripToAlbum({
+    pngBase64,
+    thumbDataUrl,
+    formatId: session.formatId || '2x6',
+    templateId: session.templateId,
+    photoCount: session.photoCount,
+  });
+  const newest = items[0];
+  const count = await albumCount();
+  setText(
+    $('customize-status'),
+    `Saved to album (${count} item${count === 1 ? '' : 's'}). Pick up to ${MAX_SHEET_ITEMS} for one print sheet.`
+  );
+  if (openAfter && newest) {
+    openAlbum({ preselectId: newest.id, fromCustomize: true });
+  }
+  return newest;
+}
+
+async function deleteSelectedAlbumStrips() {
+  const ids = [...(getSession().albumSelectedIds || [])];
+  if (!ids.length) {
+    setText($('album-status'), 'Select strips to delete.');
+    return;
+  }
+  const ok = window.confirm(`Delete ${ids.length} selected strip${ids.length === 1 ? '' : 's'} from the album?`);
+  if (!ok) return;
+  for (const id of ids) await removeStripFromAlbum(id);
+  patchSession({ albumSelectedIds: [] });
+  setText($('album-status'), 'Deleted.');
+  await renderAlbum();
+}
+
+function leaveAlbum() {
+  patchSession({ albumSelectedIds: [] });
+  clearAll(getConfig().defaults);
+  go(Phase.IDLE, { force: true });
+}
+
+async function printSelectedAlbumStrips() {
+  const ids = [...(getSession().albumSelectedIds || [])];
+  if (!ids.length) {
+    setText($('album-status'), 'Select at least one strip.');
+    return;
+  }
+  if (ids.length > MAX_SHEET_ITEMS) {
+    setText($('album-status'), `Print sheet fits ${MAX_SHEET_ITEMS} items max.`);
+    return;
+  }
+
+  const printBtn = $('btn-album-print');
+  if (printBtn) printBtn.disabled = true;
+  setText($('album-status'), 'Building print sheet…');
+
+  try {
+    const strips = await getAlbumStripsByIds(ids);
+    if (!strips.length) throw new Error('Selected items were not found in the album.');
+    const kinds = new Set(
+      strips.map((s) => (String(s.formatId || '').includes('polaroid') ? 'polaroid' : 'strip'))
+    );
+    if (kinds.size > 1) {
+      throw new Error('Select only strips or only polaroids for one print sheet.');
+    }
+    const sheetSpec = printSheetForAlbumItems(strips);
+    const images = [];
+    for (const strip of strips) {
+      images.push(await loadPngBase64(strip.pngBase64));
+    }
+    const sheet = composePrintSheet(images, { sheet: sheetSpec, cutGuides: true });
+    const pngBase64 = canvasToPngBase64(sheet);
+    patchSession({
+      pngBase64,
+      printMode: 'sheet',
+      formatId: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid-sheet' : 'strip-sheet',
+      printSheetKey: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip',
+    });
+
+    const cfg = getConfig();
+    const useSilentKiosk = cfg.silentPrint === true && window.photobooth?.printStrip;
+    if (useSilentKiosk) {
+      const copies = Number(getSession().printCopies) || cfg.copies || 1;
+      const result = await window.photobooth.printStrip({
+        pngBase64,
+        printerName: cfg.printerName,
+        copies,
+        widthPx: sheet.width,
+        heightPx: sheet.height,
+        pageWidthIn: sheetSpec.widthIn,
+        pageHeightIn: sheetSpec.heightIn,
+      });
+      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
+      setText($('album-status'), 'Printed — thank you!');
+      leaveAlbum();
+    } else {
+      await openPrintPage(pngBase64, {
+        autoDialog: true,
+        mode: 'sheet',
+        sheet: sheetSpec,
+        returnPhase: Phase.ALBUM,
+      });
+    }
+  } catch (err) {
+    setText($('album-status'), err.message || 'Print sheet failed');
+    if (getPhase() !== Phase.ALBUM) go(Phase.ALBUM, { force: true });
+  } finally {
+    syncAlbumSelectionMeta();
+  }
+}
+
 /* ——— Phase 4: Print / Save ——— */
 function downloadPng(filename) {
   const session = getSession();
@@ -1234,14 +1554,24 @@ async function savePng() {
 }
 
 let printPageResolve = null;
+let printReturnPhase = Phase.IDLE;
 
 function finishPrintSession() {
   if (printPageResolve) {
     printPageResolve({ ok: true });
     printPageResolve = null;
   }
+  const backTo = printReturnPhase;
+  printReturnPhase = Phase.IDLE;
   stopSetupPreviewCompletely();
   clearStripPreview();
+  if (backTo === Phase.ALBUM) {
+    patchSession({ printMode: 'strip' });
+    go(Phase.ALBUM, { force: true });
+    void renderAlbum();
+    setText($('album-status'), 'Print finished — select more or go back.');
+    return;
+  }
   clearAll(getConfig().defaults);
   go(Phase.IDLE, { force: true });
 }
@@ -1259,17 +1589,54 @@ function loadPrintStripImage(pngBase64) {
 }
 
 /** In-app print page → system print dialog (format-aware). */
-async function openPrintPage(pngBase64, { autoDialog = true } = {}) {
+async function openPrintPage(
+  pngBase64,
+  { autoDialog = true, mode = 'strip', sheet = STRIP_PRINT_SHEET, returnPhase = Phase.IDLE } = {}
+) {
   await loadPrintStripImage(pngBase64);
+  printReturnPhase = returnPhase;
+  patchSession({ printMode: mode });
+  const screen = document.querySelector('.print-screen');
+  const title = $('print-screen-title');
+  const hint = $('print-screen-hint');
   try {
-    const cfg = getConfig();
-    const session = getSession();
-    const size = composeSize(session.formatId || '2x6', cfg);
-    const pw = size.baseWidthPx / size.dpi;
-    const ph = size.baseHeightPx / size.dpi;
-    const screen = document.querySelector('.print-screen');
-    screen?.style?.setProperty('--paper-w', `${pw}in`);
-    screen?.style?.setProperty('--paper-h', `${ph}in`);
+    if (mode === 'sheet' || mode === 'a4') {
+      const sheetSpec = sheet || STRIP_PRINT_SHEET;
+      screen?.style?.setProperty('--paper-w', `${sheetSpec.widthIn}in`);
+      screen?.style?.setProperty('--paper-h', `${sheetSpec.heightIn}in`);
+      screen?.setAttribute('data-print-mode', 'sheet');
+      const kind = sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip';
+      if (title) title.textContent = `Print ${kind} sheet`;
+      if (hint) {
+        hint.innerHTML = `Choose your printer. Paper: <strong>${sheetSizeLabel(sheetSpec)}</strong> · up to ${MAX_SHEET_ITEMS} ${kind}s.`;
+      }
+      const img = $('print-strip-img');
+      if (img) {
+        img.width = Math.round(sheetSpec.widthIn * 300);
+        img.height = Math.round(sheetSpec.heightIn * 300);
+        img.alt = `${kind} print sheet ready to print`;
+      }
+    } else {
+      const cfg = getConfig();
+      const session = getSession();
+      const { pageWidthIn: pw, pageHeightIn: ph } = singlePrintPageInches(
+        session.formatId || '2x6',
+        cfg
+      );
+      screen?.style?.setProperty('--paper-w', `${pw}in`);
+      screen?.style?.setProperty('--paper-h', `${ph}in`);
+      screen?.setAttribute('data-print-mode', 'strip');
+      if (title) title.textContent = 'Print your strip';
+      if (hint) {
+        hint.innerHTML = `Choose your printer in the dialog. Paper: <strong>${(pw * 2.54).toFixed(2)}×${(ph * 2.54).toFixed(2)} cm</strong> landscape cell.`;
+      }
+      const img = $('print-strip-img');
+      if (img) {
+        img.width = Math.round(pw * 300);
+        img.height = Math.round(ph * 300);
+        img.alt = 'Photo strip ready to print';
+      }
+    }
   } catch {
     /* optional */
   }
@@ -1298,6 +1665,11 @@ async function doPrint() {
   try {
     await ensureComposedForExport();
     const pngBase64 = getSession().pngBase64;
+    try {
+      await saveCurrentStripToAlbum({ openAfter: false });
+    } catch (albumErr) {
+      console.warn(albumErr);
+    }
     if (cfg.saveLocalCopy !== false) {
       try {
         await savePng();
@@ -1312,8 +1684,7 @@ async function doPrint() {
       cfg.silentPrint === true && window.photobooth?.printStrip;
     if (useSilentKiosk) {
       const copies = Number(getSession().printCopies) || cfg.copies || 1;
-      const pageWidthIn = size.baseWidthPx / size.dpi;
-      const pageHeightIn = size.baseHeightPx / size.dpi;
+      const { pageWidthIn, pageHeightIn } = singlePrintPageInches(session.formatId, cfg);
       result = await window.photobooth.printStrip({
         pngBase64,
         printerName: cfg.printerName,
@@ -1331,7 +1702,7 @@ async function doPrint() {
       go(Phase.IDLE, { force: true });
     } else {
       setText($('customize-status'), 'Opening print page…');
-      await openPrintPage(pngBase64, { autoDialog: true });
+      await openPrintPage(pngBase64, { autoDialog: true, mode: 'strip', returnPhase: Phase.IDLE });
     }
   } catch (err) {
     go(Phase.CUSTOMIZE, { force: true });
@@ -1367,21 +1738,116 @@ async function syncSettings() {
   if (cfg.printerName) sel.value = cfg.printerName;
   $('set-copies').value = cfg.copies ?? 1;
   $('set-debug').checked = !!cfg.debugSlots;
+  $('set-camera-dcc').checked = cfg.camera?.backend === 'digicamcontrol' || cfg.camera?.backend === 'gphoto2';
+  if ($('set-camera-backend')) {
+    $('set-camera-backend').value = backendToUi(cfg);
+  }
+  if ($('set-camera-mode')) {
+    const m = cfg.camera?.mode;
+    $('set-camera-mode').value = m === 'http' ? 'http' : m === 'cmd' ? 'cmd' : 'remote';
+  }
   if (st.printerWarning) {
     $('printer-warn').hidden = false;
     $('printer-warn').textContent = st.printerWarning;
   } else {
     $('printer-warn').hidden = true;
   }
+  await refreshCameraProbe();
+}
+
+async function refreshCameraProbe() {
+  const el = $('camera-probe');
+  if (!el) return;
+  if (!window.photobooth?.probeCamera) {
+    el.textContent = 'digiCamControl capture requires Electron (npm start).';
+    return;
+  }
+  try {
+    const probe = await window.photobooth.probeCamera();
+    if (probe.backend === 'capture-card') {
+      el.textContent = `HDMI capture card · strips = frames from USB Video (not desktop) · ${probe.hints?.[0] || ''}`;
+      return;
+    }
+    if (probe.backend === 'webcam') {
+      el.textContent = 'Strips = live preview from selected webcam.';
+      return;
+    }
+    if (probe.backend === 'gphoto2') {
+      const g = probe.gphoto || {};
+      let line = [
+        g.gphotoPath ? `gPhoto2: ${g.gphotoPath}` : 'gPhoto2',
+        g.cameraDetected ? 'X-T2/USB detected' : 'No camera in WSL — run usbipd attach',
+        probe.ready ? 'Shutter capture ready' : 'Not ready',
+        `saves: ${probe.watchFolder}`,
+      ].join(' · ');
+      if (g.usbipdRequired && g.usbipdSteps) {
+        line += ` — ${g.usbipdSteps}`;
+      } else if (!probe.ready && probe.hints?.[0]) {
+        line += ` — ${probe.hints[0].slice(0, 100)}…`;
+      }
+      el.textContent = line;
+      return;
+    }
+    if (probe.backend !== 'digicamcontrol') {
+      el.textContent = 'Unknown camera backend.';
+      return;
+    }
+    const parts = [];
+    if (probe.digiCamControlRunning) parts.push('digiCamControl running');
+    else parts.push('digiCamControl NOT running — start CameraControl.exe');
+    if (probe.webSession?.online) {
+      parts.push(`web OK${probe.webSession.cameraLabel ? `: ${probe.webSession.cameraLabel}` : ''}`);
+    }
+    if (probe.usbProbe?.tested && !probe.usbProbe.usbConnected) {
+      parts.push('USB: none (use Wi‑Fi for α5000)');
+    } else if (probe.usbProbe?.usbConnected) {
+      parts.push('USB: camera found');
+    }
+    const tool =
+      probe.mode === 'http'
+        ? probe.webSession?.online
+          ? `HTTP :${probe.webPort}`
+          : 'HTTP mode — enable Webserver in digiCamControl'
+        : probe.mode === 'remote'
+          ? probe.remoteAvailable
+            ? probe.digiCamControlRunning
+              ? 'Remote capture ready'
+              : 'Remote — start digiCamControl + Wi‑Fi Sony'
+            : 'Remote exe missing'
+          : probe.cmdAvailable
+            ? 'Cmd (USB)'
+            : 'Cmd exe missing';
+    el.textContent = `${tool} · ${parts.join(' · ')} · saves: ${probe.watchFolder}`;
+    if (probe.hints?.length && !probe.ready) {
+      el.textContent += ` — ${probe.hints[probe.hints.length - 1]}`;
+    }
+  } catch (err) {
+    el.textContent = err?.message || 'Could not probe camera backend';
+  }
 }
 
 async function saveSettings() {
+  const cfg = getConfig();
+  const uiBackend = $('set-camera-backend')?.value || 'capture-card';
+  const mapped = uiToBackend(uiBackend);
   await saveConfig({
     printerName: $('set-printer').value,
     copies: Number($('set-copies').value) || 1,
     debugSlots: $('set-debug').checked,
+    camera: {
+      ...cfg.camera,
+      backend: mapped.backend,
+      previewSource: mapped.previewSource,
+      mode:
+        $('set-camera-mode')?.value === 'http'
+          ? 'http'
+          : $('set-camera-mode')?.value === 'cmd'
+            ? 'cmd'
+            : 'remote',
+    },
   });
   setText($('settings-status'), 'Saved');
+  await refreshCameraProbe();
   if (getPhase() === Phase.CUSTOMIZE) scheduleRecompose();
   setTimeout(() => setText($('settings-status'), ''), 1500);
 }
@@ -1421,6 +1887,7 @@ async function testPrint() {
 /* ——— Bindings ——— */
 function bind() {
   $('btn-start').addEventListener('click', () => openSetup());
+  $('btn-open-album')?.addEventListener('click', () => openAlbum());
   $('btn-setup-cancel').addEventListener('click', async () => {
     await stopSetupPreviewCompletely();
     clearAll(getConfig().defaults);
@@ -1447,6 +1914,29 @@ function bind() {
   $('btn-cam-home').addEventListener('click', () => cancelCapture());
 
   $('btn-print').addEventListener('click', () => void doPrint());
+  $('btn-save-album')?.addEventListener('click', async () => {
+    if (customizeBusy) return;
+    setCustomizeBusy(true);
+    try {
+      await saveCurrentStripToAlbum({ openAfter: true });
+    } catch (err) {
+      setText($('customize-status'), err.message || 'Could not save to album');
+    } finally {
+      setCustomizeBusy(false);
+    }
+  });
+  $('btn-open-album-from-customize')?.addEventListener('click', () => {
+    if (customizeBusy) return;
+    openAlbum({ fromCustomize: true });
+  });
+  $('btn-album-back')?.addEventListener('click', () => leaveAlbum());
+  $('btn-album-print')?.addEventListener('click', () => void printSelectedAlbumStrips());
+  $('btn-album-clear-selection')?.addEventListener('click', () => {
+    patchSession({ albumSelectedIds: [] });
+    setText($('album-status'), '');
+    renderAlbum();
+  });
+  $('btn-album-delete-selected')?.addEventListener('click', () => void deleteSelectedAlbumStrips());
   $('btn-advanced-toggle')?.addEventListener('click', () => toggleAdjustPanel());
   $('btn-adjust-reset')?.addEventListener('click', () => resetAdjustments());
   $('toggle-safe-bounds')?.addEventListener('change', (e) => {
@@ -1465,9 +1955,14 @@ function bind() {
     setCustomizeBusy(true);
     try {
       const r = await savePng();
+      try {
+        await saveCurrentStripToAlbum({ openAfter: false });
+      } catch (albumErr) {
+        console.warn(albumErr);
+      }
       setText(
         $('customize-status'),
-        r.path ? `Saved: ${r.path}` : r.downloaded ? 'Downloaded PNG' : 'Saved'
+        r.path ? `Saved: ${r.path}` : r.downloaded ? 'Downloaded PNG · also in album' : 'Saved · also in album'
       );
     } catch (err) {
       setText($('customize-status'), err.message || 'Save failed');
@@ -1505,6 +2000,8 @@ function bind() {
         cancelCapture();
       } else if (phase === Phase.CUSTOMIZE) {
         void startOver();
+      } else if (phase === Phase.ALBUM) {
+        leaveAlbum();
       } else if (phase === Phase.PRINTING) {
         finishPrintSession();
       }
@@ -1533,6 +2030,11 @@ function bind() {
     if (e.key === 'Enter' && phase === Phase.SETUP && !settingsOpen) {
       e.preventDefault();
       if (!$('btn-begin').disabled) confirmBeginCapture();
+    }
+
+    if (e.key === 'Enter' && phase === Phase.ALBUM && !settingsOpen) {
+      e.preventDefault();
+      if (!$('btn-album-print')?.disabled) void printSelectedAlbumStrips();
     }
   });
 

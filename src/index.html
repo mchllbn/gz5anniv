@@ -44,9 +44,12 @@
           <p class="event-org" id="event-org">Golden Z-5 Security &amp; Investigation Agency, Inc.</p>
         </div>
         <div class="idle-cta-block">
-          <p class="sub idle-flow">Setup · Capture · Frame &amp; effects · Print</p>
-          <button type="button" id="btn-start" class="btn btn-primary btn-xl">Start</button>
-          <p class="hint">Press <kbd>Space</kbd></p>
+          <p class="sub idle-flow">Setup · Capture · Frame &amp; effects · Album · Print</p>
+          <div class="idle-cta-row">
+            <button type="button" id="btn-start" class="btn btn-primary btn-xl">Start</button>
+            <button type="button" id="btn-open-album" class="btn btn-secondary btn-xl">Album</button>
+          </div>
+          <p class="hint">Press <kbd>Space</kbd> to start · pick up to 4 items for one landscape print sheet</p>
         </div>
       </section>
 
@@ -83,8 +86,10 @@
             <div class="setup-options">
               <div class="setup-camera-preview" id="setup-camera-wrap">
                 <span class="field-label">Live preview</span>
+                <p id="capture-source-hint" class="meta capture-source-hint" hidden></p>
                 <div class="setup-preview-frame">
                   <video id="setup-preview" playsinline autoplay muted></video>
+                  <img id="setup-preview-liveview" class="liveview-preview" hidden alt="" />
                   <p
                     id="setup-preview-hint"
                     class="setup-preview-hint"
@@ -225,13 +230,15 @@
 
           <aside class="action-col" aria-label="Print and session actions">
             <h3 class="customize-section-title action-title">Ready to print</h3>
-            <button type="button" id="btn-print" class="btn btn-primary btn-xl">Print now</button>
+            <button type="button" id="btn-print" class="btn btn-primary btn-xl">Print strip</button>
+            <button type="button" id="btn-save-album" class="btn btn-secondary btn-xl">Save to album</button>
             <label class="check-row print-debug-row" for="toggle-safe-bounds">
               <span class="check-row-label">Safe print bounds</span>
               <input id="toggle-safe-bounds" type="checkbox" />
             </label>
             <div class="actions-stack" role="group" aria-label="Finish session">
-              <button type="button" id="btn-save" class="btn btn-secondary">Save PNG only</button>
+              <button type="button" id="btn-save" class="btn btn-ghost">Save PNG only</button>
+              <button type="button" id="btn-open-album-from-customize" class="btn btn-ghost">Open album</button>
               <button type="button" id="btn-retake" class="btn btn-ghost">Retake photos</button>
               <button type="button" id="btn-start-over" class="btn btn-ghost">Start over</button>
             </div>
@@ -240,11 +247,49 @@
         </div>
       </section>
 
-      <!-- PRINT (Phase 4) — strip only; opens system print dialog -->
+      <!-- ALBUM — pick up to 4 for one landscape cut sheet -->
+      <section class="screen album-screen" data-phase="album" aria-label="Photo strip album">
+        <div class="album-page">
+          <header class="panel-head panel-head-inline">
+            <div class="panel-head-line">
+              <h2>Album</h2>
+              <span class="panel-head-sep" aria-hidden="true">·</span>
+              <p>Select up to 4 strips or polaroids for one landscape sheet</p>
+            </div>
+            <img
+              class="panel-logo agency-logo panel-head-logo-end"
+              data-logo="agency"
+              src="./assets/templates/gz5-logo.png"
+              alt="Golden Z-5 Security & Investigation Agency, Inc."
+              width="200"
+              height="200"
+            />
+          </header>
+
+          <div class="album-toolbar">
+            <p id="album-selection-meta" class="album-selection-meta" aria-live="polite">0 of 4 selected</p>
+            <div class="album-toolbar-actions">
+              <button type="button" id="btn-album-clear-selection" class="btn btn-ghost btn-sm">Clear selection</button>
+              <button type="button" id="btn-album-delete-selected" class="btn btn-ghost btn-sm">Delete selected</button>
+            </div>
+          </div>
+
+          <div id="album-grid" class="album-grid" role="list" aria-label="Saved photo strips"></div>
+          <p id="album-empty" class="album-empty" hidden>No strips yet. Capture a session and tap <strong>Save to album</strong>.</p>
+
+          <div class="actions album-actions">
+            <button type="button" id="btn-album-back" class="btn btn-ghost">Back</button>
+            <button type="button" id="btn-album-print" class="btn btn-primary btn-xl" disabled>Print sheet</button>
+          </div>
+          <p id="album-status" class="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <!-- PRINT (Phase 4) — strip or A4 sheet -->
       <section class="screen print-screen" data-phase="printing" aria-label="Print photo strip">
         <div class="print-screen-chrome">
-          <h2>Print your strip</h2>
-          <p class="print-screen-hint">Choose your printer in the dialog. Paper size: <strong>2×6″</strong> portrait.</p>
+          <h2 id="print-screen-title">Print your strip</h2>
+          <p class="print-screen-hint" id="print-screen-hint">Choose your printer in the dialog. Landscape cut sheet.</p>
           <div class="print-screen-actions">
             <button type="button" id="btn-print-dialog" class="btn btn-primary btn-xl">Print</button>
             <button type="button" id="btn-print-done" class="btn btn-ghost">Done</button>
@@ -262,6 +307,25 @@
       <p id="printer-warn" class="warn" hidden></p>
       <label>Copies <input id="set-copies" type="number" min="1" max="5" value="1" /></label>
       <label class="check-row"><input id="set-debug" type="checkbox" /> Debug slot outlines</label>
+      <label class="check-row"><input id="set-camera-dcc" type="checkbox" /> Camera shutter capture (not screen preview)</label>
+      <label>Shutter backend
+        <select id="set-camera-backend">
+          <option value="capture-card">HDMI only — frame from USB Video (no RAW)</option>
+          <option value="dual">HDMI preview + USB shutter — RAW/JPEG via gPhoto2 (best)</option>
+          <option value="gphoto2">USB shutter only — gPhoto2 (no HDMI preview in app)</option>
+          <option value="digicamcontrol">digiCamControl — Nikon/Canon/Sony Wi‑Fi</option>
+          <option value="webcam">Webcam / other USB camera</option>
+        </select>
+      </label>
+      <label>digiCamControl mode
+        <select id="set-camera-mode">
+          <option value="remote">Remote — digiCamControl open, α5000 on Wi‑Fi (recommended)</option>
+          <option value="http">HTTP — digiCamControl + Webserver enabled</option>
+          <option value="cmd">Cmd — USB only (not α5000; closes digiCamControl UI)</option>
+        </select>
+      </label>
+      <p id="camera-probe" class="meta"></p>
+      <p class="meta"><strong>HDMI booth (X-T2):</strong> Camera micro HDMI → capture card → PC shows as <strong>USB Video</strong>. In setup, pick that device. Settings → backend <strong>HDMI capture card</strong>. Turn off “Camera shutter capture” unless you also add USB tether. Fuji HDMI is usually a clean image (no menus).</p>
       <div class="row-actions">
         <button type="button" id="btn-test-print" class="btn btn-secondary">Test print</button>
         <button type="button" id="btn-settings-save" class="btn btn-primary">Save</button>
@@ -272,7 +336,7 @@
         <p class="orient-title">Event info</p>
         <p id="settings-event-org"></p>
       </div>
-      <p class="meta">Guest flow: Setup → Capture → Frame/Effects → Print<br />Ctrl+, settings · Esc back · F11 fullscreen</p>
+      <p class="meta">Guest flow: Setup → Capture → Frame/Effects → Album (pick ≤4) → Print sheet<br />Ctrl+, settings · Esc back · F11 fullscreen</p>
     </aside>
 
     <script type="module" src="./js/ui.js"></script>
