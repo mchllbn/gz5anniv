@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Golden Z-5 — 20th Anniversary Photobooth</title>
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- IDLE — full-viewport attract -->
+      <section class="screen active" data-phase="idle">
+        <div class="idle-backdrop" aria-hidden="true">
+          <div class="bg bg-event" id="idle-bg"></div>
+          <div class="bg-scrim bg-scrim-idle"></div>
+          <div class="idle-sparks" aria-hidden="true">
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+          </div>
+        </div>
+        <div class="idle-hero-block">
+          <div class="hero-logo-wrap">
+            <span class="spark hero-logo-spark" aria-hidden="true"></span>
+            <img
+              class="hero-logo"
+              id="event-logo"
+              data-logo="anniversary"
+              src="./assets/templates/logo.png"
+              alt=""
+              width="720"
+              height="405"
+            />
+          </div>
+          <p class="event-org" id="event-org">Golden Z-5 Security &amp; Investigation Agency, Inc.</p>
+        </div>
+        <div class="idle-cta-block">
+          <p class="sub idle-flow">Setup · Capture · Frame &amp; effects · Print</p>
+          <button type="button" id="btn-start" class="btn btn-primary btn-xl">Start</button>
+          <p class="hint">Press <kbd>Space</kbd></p>
+        </div>
+      </section>
+
+      <!-- SETUP (Phase 1) — no timer here -->
+      <section class="screen" data-phase="setup">
+        <div class="setup-page">
+          <div class="setup-sparks" aria-hidden="true">
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+            <span class="spark"></span>
+          </div>
+          <header class="panel-head panel-head-inline">
+            <div class="panel-head-line">
+              <h2>Session setup</h2>
+              <span class="panel-head-sep" aria-hidden="true">·</span>
+              <p>Choose options, then begin capture</p>
+            </div>
+            <img
+              class="panel-logo agency-logo panel-head-logo-end"
+              data-logo="agency"
+              src="./assets/templates/gz5-logo.png"
+              alt="Golden Z-5 Security & Investigation Agency, Inc."
+              width="200"
+              height="200"
+            />
+          </header>
+
+          <div class="setup-grid">
+            <div class="setup-options">
+              <div class="setup-camera-preview" id="setup-camera-wrap">
+                <span class="field-label">Live preview</span>
+                <div class="setup-preview-frame">
+                  <video id="setup-preview" playsinline autoplay muted></video>
+                  <p
+                    id="setup-preview-hint"
+                    class="setup-preview-hint"
+                    hidden
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                </div>
+              </div>
+
+              <div class="setup-settings" aria-label="Session options">
+                <div class="field setup-controls-format">
+                  <span class="field-label">Output format</span>
+                  <div class="format-size-row" id="output-format-chips" role="group" aria-label="Output format"></div>
+                </div>
+
+                <div class="setup-settings-meta">
+                  <div class="field setup-controls-countdown">
+                    <span class="field-label">Countdown</span>
+                    <div class="chip-row" id="countdown-chips" role="group" aria-label="Countdown"></div>
+                  </div>
+
+                  <div class="setup-controls-toggles">
+                    <div class="field setup-controls-mirror">
+                      <span class="field-label">Mirror preview</span>
+                      <label class="check-row check-row-toggle setup-mirror-toggle" for="setup-mirror">
+                        <span class="check-row-label">Camera mirror</span>
+                        <input type="checkbox" id="setup-mirror" checked />
+                        <span class="toggle-ui" aria-hidden="true"></span>
+                      </label>
+                    </div>
+
+                    <div class="field setup-controls-confetti">
+                      <span class="field-label">Confetti</span>
+                      <label class="check-row check-row-toggle setup-confetti-toggle" for="setup-confetti-overlap">
+                        <span class="check-row-label">Overlap photos</span>
+                        <input type="checkbox" id="setup-confetti-overlap" checked />
+                        <span class="toggle-ui" aria-hidden="true"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="field" id="camera-field" hidden>
+                  <span class="field-label">Camera</span>
+                  <select id="setup-camera"></select>
+                </div>
+              </div>
+            </div>
+
+            <aside class="setup-orientation" aria-label="Print orientation preview">
+              <p class="orient-title">Print preview</p>
+              <div class="strip-mock" id="strip-mock" data-count="3">
+                <div class="strip-mock-stage" id="strip-mock-stage">
+                  <div class="strip-mock-slots" id="strip-mock-slots" aria-hidden="true"></div>
+                  <img
+                    id="strip-mock-frame"
+                    class="strip-mock-frame"
+                    alt=""
+                    width="600"
+                    height="1800"
+                  />
+                </div>
+              </div>
+              <p class="orient-meta" id="orient-meta">Portrait · 2×6″ vertical strip</p>
+            </aside>
+          </div>
+
+          <div class="actions">
+            <button type="button" id="btn-setup-cancel" class="btn btn-ghost">Cancel</button>
+            <button type="button" id="btn-begin" class="btn btn-primary btn-xl">Begin Capture</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- CAPTURE (Phase 2) -->
+      <section class="screen" data-phase="capture">
+        <div class="capture-stage" id="capture-stage">
+          <div class="capture-frame" id="capture-frame" aria-hidden="true">
+            <video id="video" playsinline autoplay muted></video>
+          </div>
+        </div>
+        <div id="countdown" class="countdown" hidden></div>
+        <div id="flash" class="flash" aria-hidden="true"></div>
+        <div id="shot-label" class="badge">Photo 1 of 3</div>
+        <div id="capture-progress" class="capture-progress" aria-live="polite">
+          <p id="capture-saved-count" class="capture-saved-count">0 of 3 captured</p>
+          <div id="capture-takes" class="capture-takes" aria-label="Photos captured this session"></div>
+        </div>
+        <button type="button" id="btn-capture-cancel" class="btn btn-ghost corner">Cancel</button>
+        <div id="cam-error" class="banner" hidden>
+          <p id="cam-error-text"></p>
+          <button type="button" id="btn-cam-retry" class="btn btn-primary">Retry</button>
+          <button type="button" id="btn-cam-home" class="btn btn-ghost">Home</button>
+        </div>
+      </section>
+
+      <!-- CUSTOMIZE (Phase 3) -->
+      <section class="screen" data-phase="customize">
+        <div class="customize-layout">
+          <aside class="tools-col" aria-label="Customize tools">
+            <header class="customize-head panel-head-inline">
+              <div class="panel-head-line"><h2>Customize</h2></div>
+            </header>
+            <div class="tools-scroll">
+              <section class="tool-panel active" id="panel-effects" role="region" aria-label="Effects">
+                <h3 class="customize-section-title">Effects</h3>
+                <div class="gallery filters" id="filter-gallery"></div>
+                <div class="adjust-panel" id="adjust-panel" hidden>
+                  <button
+                    type="button"
+                    class="adjust-toggle customize-section-toggle"
+                    id="btn-advanced-toggle"
+                    aria-expanded="false"
+                    aria-controls="adjust-body"
+                  >
+                    <span id="customize-adjust-heading" class="customize-section-title customize-section-title-inline">Advanced adjustments</span>
+                    <span class="adjust-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div class="adjust-body" id="adjust-body" hidden>
+                    <p class="adjust-hint">Fine-tune brightness, contrast, and color on every shot.</p>
+                    <div class="adjust-grid" id="adjust-grid"></div>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-adjust-reset">Reset adjustments</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </aside>
+
+          <main class="preview-col">
+            <div class="strip-preview-shell">
+              <div class="strip-canvas-wrap" id="strip-canvas-wrap">
+                <canvas id="strip" width="600" height="1800"></canvas>
+                <canvas id="sticker-overlay" width="600" height="1800" aria-hidden="true"></canvas>
+              </div>
+            </div>
+          </main>
+
+          <aside class="action-col" aria-label="Print and session actions">
+            <h3 class="customize-section-title action-title">Ready to print</h3>
+            <button type="button" id="btn-print" class="btn btn-primary btn-xl">Print now</button>
+            <label class="check-row print-debug-row" for="toggle-safe-bounds">
+              <span class="check-row-label">Safe print bounds</span>
+              <input id="toggle-safe-bounds" type="checkbox" />
+            </label>
+            <div class="actions-stack" role="group" aria-label="Finish session">
+              <button type="button" id="btn-save" class="btn btn-secondary">Save PNG only</button>
+              <button type="button" id="btn-retake" class="btn btn-ghost">Retake photos</button>
+              <button type="button" id="btn-start-over" class="btn btn-ghost">Start over</button>
+            </div>
+            <p id="customize-status" class="status" aria-live="polite"></p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- PRINT (Phase 4) — strip only; opens system print dialog -->
+      <section class="screen print-screen" data-phase="printing" aria-label="Print photo strip">
+        <div class="print-screen-chrome">
+          <h2>Print your strip</h2>
+          <p class="print-screen-hint">Choose your printer in the dialog. Paper size: <strong>2×6″</strong> portrait.</p>
+          <div class="print-screen-actions">
+            <button type="button" id="btn-print-dialog" class="btn btn-primary btn-xl">Print</button>
+            <button type="button" id="btn-print-done" class="btn btn-ghost">Done</button>
+          </div>
+        </div>
+        <div class="print-target" id="print-target">
+          <img id="print-strip-img" alt="Photo strip ready to print" width="600" height="1800" />
+        </div>
+      </section>
+    </div>
+
+    <aside id="settings" class="settings" hidden>
+      <h2>Settings</h2>
+      <label>Printer <select id="set-printer"></select></label>
+      <p id="printer-warn" class="warn" hidden></p>
+      <label>Copies <input id="set-copies" type="number" min="1" max="5" value="1" /></label>
+      <label class="check-row"><input id="set-debug" type="checkbox" /> Debug slot outlines</label>
+      <div class="row-actions">
+        <button type="button" id="btn-test-print" class="btn btn-secondary">Test print</button>
+        <button type="button" id="btn-settings-save" class="btn btn-primary">Save</button>
+        <button type="button" id="btn-settings-close" class="btn btn-ghost">Close</button>
+      </div>
+      <p id="settings-status" class="status"></p>
+      <div class="event-info-box" id="settings-event-info">
+        <p class="orient-title">Event info</p>
+        <p id="settings-event-org"></p>
+      </div>
+      <p class="meta">Guest flow: Setup → Capture → Frame/Effects → Print<br />Ctrl+, settings · Esc back · F11 fullscreen</p>
+    </aside>
+
+    <script type="module" src="./js/ui.js"></script>
+  </body>
+</html>

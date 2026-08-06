@@ -1,0 +1,402 @@
+{
+  "printerName": "REPLACE_WITH_WINDOWS_PRINTER_NAME",
+  "copies": 1,
+  "event": {
+    "title": "20th Anniversary",
+    "subtitle": "2006 ✦ 2026",
+    "organization": "Golden Z-5 Security & Investigation Agency, Inc.",
+    "tagline": "Golden Z-5 — 20th Anniversary Photobooth",
+    "agencyLogo": "assets/templates/gz5-logo.png",
+    "anniversaryLogo": "assets/templates/logo.png",
+    "logo": "assets/templates/gz5-logo.png"
+  },
+  "defaults": {
+    "photoCount": 3,
+    "countdownSeconds": 3,
+    "mirrorPreview": true,
+    "confettiOverlap": true,
+    "filter": "natural",
+    "templateId": "anniversary-navy",
+    "formatId": "2x6"
+  },
+  "allowedPhotoCounts": [
+    3
+  ],
+  "allowedCountdowns": [
+    3,
+    5,
+    10
+  ],
+  "formats": [
+    {
+      "id": "2x6",
+      "label": "2x6 Strip",
+      "physicalSizeInches": {
+        "width": 2,
+        "height": 6
+      },
+      "canvasPx": {
+        "width": 600,
+        "height": 1800
+      },
+      "allowedPhotoCounts": [
+        3
+      ]
+    },
+    {
+      "id": "4x6",
+      "label": "4x6",
+      "physicalSizeInches": {
+        "width": 6,
+        "height": 4
+      },
+      "canvasPx": {
+        "width": 1800,
+        "height": 1200
+      },
+      "allowedPhotoCounts": [
+        3
+      ]
+    },
+    {
+      "id": "4x6-polaroid",
+      "label": "4×6 Polaroid",
+      "physicalSizeInches": {
+        "width": 4,
+        "height": 6
+      },
+      "canvasPx": {
+        "width": 1200,
+        "height": 1800
+      },
+      "allowedPhotoCounts": [
+        1
+      ]
+    },
+    {
+      "id": "6x4-four",
+      "label": "6×4 Four",
+      "physicalSizeInches": {
+        "width": 6,
+        "height": 4
+      },
+      "canvasPx": {
+        "width": 1800,
+        "height": 1200
+      },
+      "allowedPhotoCounts": [
+        4
+      ]
+    }
+  ],
+  "canvas": {
+    "width": 600,
+    "height": 1800,
+    "dpi": 300,
+    "scale": 2
+  },
+  "underfillColor": "#e8e8ec",
+  "templateMode": "overlay",
+  "debugSlots": false,
+  "pauseBetweenShotsMs": 700,
+  "saveLocalCopy": true,
+  "outputDir": "output",
+  "showTimestamp": false,
+  "templates": [
+    {
+      "id": "anniversary-navy",
+      "name": "Navy Anniversary Strip",
+      "formatId": "2x6",
+      "photoCount": 3,
+      "path": "assets/templates/strip-blue-3.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 34,
+          "y": 30,
+          "w": 532,
+          "h": 392
+        },
+        {
+          "x": 34,
+          "y": 446,
+          "w": 532,
+          "h": 392
+        },
+        {
+          "x": 34,
+          "y": 862,
+          "w": 532,
+          "h": 390
+        }
+      ]
+    },
+    {
+      "id": "years-20-single",
+      "name": "Single Portrait",
+      "formatId": "2x6",
+      "photoCount": 1,
+      "path": "assets/templates/strip-1.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 30,
+          "y": 40,
+          "w": 540,
+          "h": 1120
+        }
+      ]
+    },
+    {
+      "id": "years-20-double",
+      "name": "Two Shot",
+      "formatId": "2x6",
+      "photoCount": 2,
+      "path": "assets/templates/strip-2.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 30,
+          "y": 36,
+          "w": 540,
+          "h": 560
+        },
+        {
+          "x": 30,
+          "y": 620,
+          "w": 540,
+          "h": 560
+        }
+      ]
+    },
+    {
+      "id": "years-20-quad",
+      "name": "Four Shot",
+      "formatId": "2x6",
+      "photoCount": 4,
+      "path": "assets/templates/strip-4.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 24,
+          "y": 28,
+          "w": 264,
+          "h": 560
+        },
+        {
+          "x": 312,
+          "y": 28,
+          "w": 264,
+          "h": 560
+        },
+        {
+          "x": 24,
+          "y": 612,
+          "w": 264,
+          "h": 560
+        },
+        {
+          "x": 312,
+          "y": 612,
+          "w": 264,
+          "h": 560
+        }
+      ]
+    },
+    {
+      "id": "anniversary-navy-4x6",
+      "name": "Navy Anniversary 4x6",
+      "formatId": "4x6",
+      "photoCount": 3,
+      "path": "assets/templates/sheet-blue-4x6-3.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 40,
+          "y": 40,
+          "w": 653,
+          "h": 542
+        },
+        {
+          "x": 729,
+          "y": 40,
+          "w": 1031,
+          "h": 542
+        },
+        {
+          "x": 729,
+          "y": 618,
+          "w": 1031,
+          "h": 542
+        }
+      ]
+    },
+    {
+      "id": "polaroid-4x6",
+      "name": "Navy Polaroid 4×6",
+      "formatId": "4x6-polaroid",
+      "photoCount": 1,
+      "path": "assets/templates/polaroid-4x6.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 64,
+          "y": 64,
+          "w": 1072,
+          "h": 1316
+        }
+      ]
+    },
+    {
+      "id": "anniversary-four-6x4",
+      "name": "Navy Four-Up 6×4",
+      "formatId": "6x4-four",
+      "photoCount": 4,
+      "path": "assets/templates/sheet-four-6x4.png",
+      "overlayPath": null,
+      "underfillColor": "#050b28",
+      "slots": [
+        {
+          "x": 659,
+          "y": 48,
+          "w": 1093,
+          "h": 600
+        },
+        {
+          "x": 49,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        },
+        {
+          "x": 627,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        },
+        {
+          "x": 1205,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        }
+      ]
+    },
+    {
+      "id": "anniversary-gold",
+      "name": "Gold Anniversary Strip",
+      "formatId": "2x6",
+      "photoCount": 3,
+      "path": "assets/templates/strip-gold-3.png",
+      "overlayPath": null,
+      "underfillColor": "#d29e34",
+      "slots": [
+        {
+          "x": 34,
+          "y": 30,
+          "w": 532,
+          "h": 392
+        },
+        {
+          "x": 34,
+          "y": 446,
+          "w": 532,
+          "h": 392
+        },
+        {
+          "x": 34,
+          "y": 862,
+          "w": 532,
+          "h": 390
+        }
+      ]
+    },
+    {
+      "id": "anniversary-gold-4x6",
+      "name": "Gold Anniversary 4x6",
+      "formatId": "4x6",
+      "photoCount": 3,
+      "path": "assets/templates/sheet-gold-4x6-3.png",
+      "overlayPath": null,
+      "underfillColor": "#d29e34",
+      "slots": [
+        {
+          "x": 40,
+          "y": 40,
+          "w": 653,
+          "h": 542
+        },
+        {
+          "x": 729,
+          "y": 40,
+          "w": 1031,
+          "h": 542
+        },
+        {
+          "x": 729,
+          "y": 618,
+          "w": 1031,
+          "h": 542
+        }
+      ]
+    },
+    {
+      "id": "polaroid-gold-4x6",
+      "name": "Gold Polaroid 4×6",
+      "formatId": "4x6-polaroid",
+      "photoCount": 1,
+      "path": "assets/templates/polaroid-gold-4x6.png",
+      "overlayPath": null,
+      "underfillColor": "#d29e34",
+      "slots": [
+        {
+          "x": 64,
+          "y": 64,
+          "w": 1072,
+          "h": 1316
+        }
+      ]
+    },
+    {
+      "id": "anniversary-four-gold-6x4",
+      "name": "Gold Four-Up 6×4",
+      "formatId": "6x4-four",
+      "photoCount": 4,
+      "path": "assets/templates/sheet-four-gold-6x4.png",
+      "overlayPath": null,
+      "underfillColor": "#d29e34",
+      "slots": [
+        {
+          "x": 659,
+          "y": 48,
+          "w": 1093,
+          "h": 600
+        },
+        {
+          "x": 49,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        },
+        {
+          "x": 627,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        },
+        {
+          "x": 1205,
+          "y": 680,
+          "w": 546,
+          "h": 472
+        }
+      ]
+    }
+  ]
+}

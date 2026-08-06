@@ -1,0 +1,14 @@
+/**
+ * Logo-adjacent typography:
+ * - Cinzel: inscription / “OF EXCELLENCE” ribbon feel (uppercase, wide tracking)
+ * - Cormorant Garamond Variable: elegant serif dates & org line (wght axis)
+ * - Source Sans 3 Variable: readable UI controls
+ *
+ * @see https://fonts.google.com/knowledge/using_variable_fonts_on_the_web
+ */
+@import '@fontsource/cinzel/500.css';
+@import '@fontsource/cinzel/600.css';
+@import '@fontsource/cinzel/700.css';
+@import '@fontsource-variable/cormorant-garamond/wght.css';
+@import '@fontsource-variable/cormorant-garamond/wght-italic.css';
+@import '@fontsource-variable/source-sans-3/wght.css';
