@@ -27,6 +27,29 @@ const DEFAULTS = {
   silentPrint: false,
   outputDir: 'output',
   showTimestamp: false,
+  /** capture-card = HDMI → USB video grab; gphoto2/digicamcontrol = USB shutter */
+  camera: {
+    backend: 'capture-card',
+    preferredDeviceLabel: 'USB Video',
+    captureWidth: 1920,
+    captureHeight: 1080,
+    mode: 'remote',
+    previewSource: 'capture-card',
+    gphotoPath: '',
+    useWslGphoto: true,
+    cmdPath: '',
+    remoteCmdPath: '',
+    webPort: 5513,
+    watchFolder: '',
+    archiveFolder: '',
+    timeoutMs: 45000,
+    settleMs: 400,
+    preferJpeg: true,
+    archiveRaw: true,
+    capturenoaf: false,
+    mirrorCapture: false,
+    fallbackToWebcam: false,
+  },
   event: {
     title: '20th Anniversary',
     subtitle: '2006 ✦ 2026',
@@ -110,6 +133,7 @@ async function loadWebConfig() {
     ...fileCfg,
     defaults: { ...DEFAULTS.defaults, ...fileCfg.defaults, ...local.defaults },
     event: { ...DEFAULTS.event, ...fileCfg.event },
+    camera: { ...DEFAULTS.camera, ...fileCfg.camera, ...local.camera },
     canvas: {
       ...DEFAULTS.canvas,
       ...fileCfg.canvas,
@@ -144,6 +168,7 @@ export async function loadBootstrap() {
       ...data.config,
       defaults: { ...DEFAULTS.defaults, ...data.config?.defaults },
       event: { ...DEFAULTS.event, ...data.config?.event },
+      camera: { ...DEFAULTS.camera, ...data.config?.camera },
     },
     isWeb: false,
   };
@@ -162,6 +187,7 @@ export async function saveConfig(partial) {
           copies: next.copies,
           defaults: next.defaults,
           debugSlots: next.debugSlots,
+          camera: next.camera,
           canvas: { scale: next.canvas?.scale },
         })
       );

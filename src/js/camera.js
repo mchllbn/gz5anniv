@@ -3,9 +3,79 @@
  */
 
 let stream = null;
+let liveViewTimer = null;
+let liveViewBaseUrl = null;
 
 export function getStream() {
   return stream;
+}
+
+/** Shutter capture from camera (gPhoto2 / digiCamControl), not the preview video. */
+export function usesTetherCapture(cfg) {
+  const b = cfg?.camera?.backend;
+  return (b === 'digicamcontrol' || b === 'gphoto2') && !!window.photobooth?.captureStill;
+}
+
+/** @deprecated use usesTetherCapture */
+export function usesRemoteCapture(cfg) {
+  return usesTetherCapture(cfg);
+}
+
+function stopLiveViewPoll() {
+  if (liveViewTimer) {
+    clearInterval(liveViewTimer);
+    liveViewTimer = null;
+  }
+  liveViewBaseUrl = null;
+  window.photobooth?.stopLiveView?.();
+}
+
+function setPreviewVisible({ videoEl, imgEl, mode }) {
+  if (videoEl) videoEl.hidden = mode !== 'video';
+  if (imgEl) imgEl.hidden = mode !== 'liveview';
+}
+
+export async function startSessionPreview({ videoEl, imgEl, cfg, deviceId, mirror = true } = {}) {
+  stopLiveViewPoll();
+  const cam = cfg?.camera || {};
+  const useDccLv =
+    cam.previewSource === 'digicamcontrol' &&
+    cam.backend === 'digicamcontrol' &&
+    window.photobooth?.startLiveView;
+
+  if (useDccLv && imgEl) {
+    await stopCamera(videoEl, { stopTracks: true });
+    setPreviewVisible({ videoEl, imgEl, mode: 'liveview' });
+    const r = await window.photobooth.startLiveView();
+    if (r?.ok && r.url) {
+      liveViewBaseUrl = r.url;
+      const tick = () => {
+        if (!liveViewBaseUrl) return;
+        imgEl.src = `${liveViewBaseUrl}?t=${Date.now()}`;
+      };
+      tick();
+      liveViewTimer = setInterval(tick, 120);
+      imgEl.classList.toggle('mirrored', !!mirror);
+      return 'liveview';
+    }
+  }
+
+  if (imgEl) setPreviewVisible({ videoEl, imgEl, mode: 'video' });
+  if (!videoEl) return null;
+  await startCamera(videoEl, { deviceId, mirror, cfg });
+  return 'video';
+}
+
+export async function stopSessionPreview({ videoEl, imgEl } = {}) {
+  stopLiveViewPoll();
+  if (imgEl) {
+    imgEl.removeAttribute('src');
+    imgEl.hidden = true;
+  }
+  if (videoEl) {
+    videoEl.hidden = false;
+    await stopCamera(videoEl);
+  }
 }
 
 export async function listCameras() {
@@ -14,16 +84,22 @@ export async function listCameras() {
   return devices.filter((d) => d.kind === 'videoinput');
 }
 
-export async function startCamera(videoEl, { deviceId, mirror = true } = {}) {
+export async function startCamera(videoEl, { deviceId, mirror = true, cfg = null } = {}) {
   await stopCamera(videoEl);
 
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera API not available. Use Chrome/Edge over http://localhost');
   }
 
-  // Prefer simple constraints — most reliable across Windows webcams
+  const cam = cfg?.camera || {};
+  const w = Math.max(640, Number(cam.captureWidth) || 1920);
+  const h = Math.max(480, Number(cam.captureHeight) || 1080);
+  const hdVideo = { width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30, max: 60 } };
+
   const tries = [];
   if (deviceId) {
+    tries.push({ audio: false, video: { deviceId: { exact: deviceId }, ...hdVideo } });
+    tries.push({ audio: false, video: { deviceId: { ideal: deviceId }, ...hdVideo } });
     tries.push({ audio: false, video: { deviceId: { ideal: deviceId } } });
   }
   tries.push({ audio: false, video: { facingMode: 'user' } });
@@ -143,6 +219,37 @@ export function captureFrame(videoEl, { mirror = true } = {}) {
   }
   ctx.drawImage(videoEl, 0, 0, w, h);
   return canvas;
+}
+
+/** Load a still (JPEG from digiCamControl / file) onto a canvas. */
+export function imageDataUrlToCanvas(dataUrl, { mirror = false } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!dataUrl) {
+      reject(new Error('No image data from camera'));
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (!w || !h) {
+        reject(new Error('Camera image has no dimensions'));
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (mirror) {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas);
+    };
+    img.onerror = () => reject(new Error('Could not decode camera still'));
+    img.src = dataUrl;
+  });
 }
 
 export function permissionDeniedMessage(err) {

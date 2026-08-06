@@ -12,4 +12,13 @@ contextBridge.exposeInMainWorld('photobooth', {
   toggleFullscreen: () => ipcRenderer.invoke('app:toggle-fullscreen'),
   setFullscreen: (on) => ipcRenderer.invoke('app:set-fullscreen', on),
   log: (message) => ipcRenderer.invoke('log:write', message),
+  probeCamera: () => ipcRenderer.invoke('camera:probe'),
+  captureStill: () => ipcRenderer.invoke('camera:capture'),
+  startLiveView: () => ipcRenderer.invoke('camera:liveview-start'),
+  stopLiveView: () => ipcRenderer.invoke('camera:liveview-stop'),
+  albumList: () => ipcRenderer.invoke('album:list'),
+  albumGetPng: (id) => ipcRenderer.invoke('album:get-png', id),
+  albumAdd: (entry) => ipcRenderer.invoke('album:add', entry),
+  albumRemove: (id) => ipcRenderer.invoke('album:remove', id),
+  albumClear: () => ipcRenderer.invoke('album:clear'),
 });

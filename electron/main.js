@@ -2,6 +2,14 @@ const { app, BrowserWindow, ipcMain, protocol, session, screen } = require('elec
 const path = require('path');
 const fs = require('fs');
 const { printStrip, listPrinters, testPrint } = require('./print');
+const {
+  listAlbum,
+  getAlbumPngBase64,
+  addAlbumEntry,
+  removeAlbumEntry,
+  clearAlbum,
+} = require('./album-store');
+const { captureStill, probeCameraBackend, normalizeCameraConfig, startDigiCamLiveView, stopDigiCamLiveView } = require('./camera-capture');
 
 // Keep Chromium UI / media prompts in English (does not change Windows OS language)
 app.commandLine.appendSwitch('lang', 'en-US');
@@ -164,7 +172,37 @@ function registerIpc() {
       isDev,
       outputDir: getOutputDir(config),
       logDir: getLogDir(),
+      albumDir: path.join(app.getPath('userData'), 'album'),
     };
+  });
+
+  ipcMain.handle('album:list', async () => listAlbum(app.getPath('userData')));
+
+  ipcMain.handle('album:get-png', async (_e, id) => {
+    return getAlbumPngBase64(app.getPath('userData'), id);
+  });
+
+  ipcMain.handle('album:add', async (_e, entry) => {
+    try {
+      const result = addAlbumEntry(app.getPath('userData'), entry);
+      appendLog(`Album saved ${result.item.id} (${result.count} items)`);
+      return { ok: true, ...result };
+    } catch (err) {
+      appendLog(`Album save FAIL: ${err.message}`);
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('album:remove', async (_e, id) => {
+    const count = removeAlbumEntry(app.getPath('userData'), id);
+    appendLog(`Album removed ${id} (${count} items)`);
+    return { ok: true, count };
+  });
+
+  ipcMain.handle('album:clear', async () => {
+    const dir = clearAlbum(app.getPath('userData'));
+    appendLog(`Album cleared → ${dir}`);
+    return { ok: true, dir };
   });
 
   ipcMain.handle('template:resolve', async (_e, templateId) => {
@@ -266,6 +304,56 @@ function registerIpc() {
   ipcMain.handle('log:write', async (_e, message) => {
     appendLog(String(message));
     return { ok: true };
+  });
+
+  ipcMain.handle('camera:probe', async () => {
+    const { config } = readConfig();
+    return probeCameraBackend(config.camera || {}, app.getPath('userData'));
+  });
+
+  ipcMain.handle('camera:capture', async () => {
+    const { config } = readConfig();
+    const camera = normalizeCameraConfig(config.camera || {});
+    try {
+      const result = await captureStill(camera, {
+        appUserData: app.getPath('userData'),
+        log: appendLog,
+      });
+      return result;
+    } catch (err) {
+      appendLog(`Camera capture FAIL: ${err.message}`);
+      return {
+        ok: false,
+        error: err.message || String(err),
+        fallbackToWebcam: camera.fallbackToWebcam,
+      };
+    }
+  });
+
+  ipcMain.handle('camera:liveview-start', async () => {
+    const { config } = readConfig();
+    const camera = normalizeCameraConfig(config.camera || {});
+    if (camera.previewSource !== 'digicamcontrol' || camera.backend !== 'digicamcontrol') {
+      return { ok: false, reason: 'not-digicamcontrol-preview' };
+    }
+    try {
+      const info = await startDigiCamLiveView(camera);
+      return { ok: true, ...info };
+    } catch (err) {
+      appendLog(`Live view start FAIL: ${err.message}`);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('camera:liveview-stop', async () => {
+    const { config } = readConfig();
+    const camera = normalizeCameraConfig(config.camera || {});
+    try {
+      await stopDigiCamLiveView(camera);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 }
 

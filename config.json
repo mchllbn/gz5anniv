@@ -13,7 +13,7 @@
   "defaults": {
     "photoCount": 3,
     "countdownSeconds": 3,
-    "mirrorPreview": true,
+    "mirrorPreview": false,
     "confettiOverlap": true,
     "filter": "natural",
     "templateId": "anniversary-navy",
@@ -102,6 +102,28 @@
   "saveLocalCopy": true,
   "outputDir": "output",
   "showTimestamp": false,
+  "camera": {
+    "backend": "capture-card",
+    "preferredDeviceLabel": "USB Video",
+    "captureWidth": 1920,
+    "captureHeight": 1080,
+    "mode": "cmd",
+    "previewSource": "webcam",
+    "gphotoPath": "",
+    "useWslGphoto": true,
+    "cmdPath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlCmd.exe",
+    "remoteCmdPath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlRemoteCmd.exe",
+    "webPort": 5513,
+    "watchFolder": "",
+    "archiveFolder": "",
+    "timeoutMs": 45000,
+    "settleMs": 400,
+    "preferJpeg": true,
+    "archiveRaw": true,
+    "capturenoaf": false,
+    "mirrorCapture": false,
+    "fallbackToWebcam": false
+  },
   "templates": [
     {
       "id": "anniversary-navy",
