@@ -1342,11 +1342,20 @@ kbd {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
 }
 
 #setup-preview.mirrored {
   transform: scaleX(-1);
+}
+
+#setup-preview.hdmi-cropped {
+  transform: scale(var(--hdmi-zoom, 1));
+}
+
+#setup-preview.hdmi-cropped.mirrored {
+  transform: scaleX(-1) scale(var(--hdmi-zoom, 1));
 }
 
 .liveview-preview {
@@ -1533,6 +1542,14 @@ kbd {
 
 .strip-mock-slots .slot-video.mirrored {
   transform: scaleX(-1);
+}
+
+.strip-mock-slots .slot-video.hdmi-cropped {
+  transform: scale(var(--hdmi-zoom, 1));
+}
+
+.strip-mock-slots .slot-video.hdmi-cropped.mirrored {
+  transform: scaleX(-1) scale(var(--hdmi-zoom, 1));
 }
 
 .strip-mock-slots .slot.has-live::after {
@@ -1856,6 +1873,14 @@ select {
 
 #video.mirrored {
   transform: scaleX(-1);
+}
+
+#video.hdmi-cropped {
+  transform: scale(var(--hdmi-zoom, 1));
+}
+
+#video.hdmi-cropped.mirrored {
+  transform: scaleX(-1) scale(var(--hdmi-zoom, 1));
 }
 
 .countdown {
@@ -2804,66 +2829,254 @@ select {
 /* ——— Print page (Phase 4) ——— */
 .print-screen {
   display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 1.25rem;
-  padding: 2rem 1.5rem 3rem;
-  background: var(--bg);
-  overflow: auto;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 50% at 20% 0%, rgba(201, 162, 39, 0.12), transparent 55%),
+    linear-gradient(165deg, #0a1628 0%, var(--navy-deep) 45%, #07101c 100%);
   --paper-w: 2in;
   --paper-h: 6in;
+  --sheet-w: var(--paper-w);
+  --sheet-h: var(--paper-h);
 }
 
 .print-screen.active {
   display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.print-screen-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: clamp(0.85rem, 2vw, 1.5rem);
+  width: 100%;
+  padding: clamp(0.85rem, 2vh, 1.35rem) clamp(1rem, 2.5vw, 1.75rem);
+  box-sizing: border-box;
 }
 
 .print-screen-chrome {
-  text-align: center;
-  max-width: 36rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding: 1rem 1.05rem 1.1rem;
+  text-align: left;
+  border: 1px solid rgba(201, 162, 39, 0.28);
+  border-radius: 10px;
+  background: linear-gradient(170deg, rgba(16, 34, 60, 0.95), rgba(8, 18, 34, 0.98));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
 }
 
-.print-screen-chrome h2 {
+.print-chrome-head h2 {
   font-family: var(--font-seal);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--gold-pale);
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
+  font-size: clamp(1rem, 1.8vw, 1.25rem);
 }
 
 .print-screen-hint {
   color: var(--cream-dim);
-  margin: 0 0 1.25rem;
+  margin: 0;
   line-height: 1.45;
+  font-size: 0.9rem;
 }
 
 .print-screen-actions {
   display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.print-screen-actions .btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.print-screen-actions .btn-xl {
+  min-height: 56px;
+}
+
+.print-advanced-panel {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+  padding: 0.75rem 0.8rem 0.85rem;
+  text-align: left;
+  border: 1px solid rgba(201, 162, 39, 0.28);
+  border-radius: 8px;
+  background: rgba(6, 13, 24, 0.55);
+}
+
+.print-advanced-panel[hidden] {
+  display: none !important;
+}
+
+.print-advanced-title {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-seal);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.print-advanced-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--cream-dim);
+}
+
+.print-advanced-check {
+  margin: 0.25rem 0;
+  gap: 0.55rem;
+}
+
+.print-advanced-check .check-row-label {
+  font-size: 0.82rem;
+  color: var(--cream);
+}
+
+.print-advanced-panel.is-disabled .print-adjust-grid {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.print-adjust-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: min(38vh, 320px);
+  overflow: auto;
+  padding-right: 0.15rem;
+  margin-top: 0.35rem;
+}
+
+.print-adjust-row {
+  display: grid;
+  grid-template-columns: minmax(0, 5.6rem) minmax(0, 1fr) 2.2rem;
+  gap: 0.3rem 0.45rem;
+  align-items: center;
+}
+
+.print-adjust-row label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--cream-dim);
+}
+
+.print-adjust-row input[type='range'] {
+  width: 100%;
+  accent-color: var(--gold-bright);
+}
+
+.print-adjust-value {
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--gold-pale);
+}
+
+.print-advanced-actions {
+  display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.print-advanced-panel .status {
+  margin: 0.4rem 0 0;
+  min-height: 1.1rem;
+  font-size: 0.78rem;
+}
+
+.btn-sm {
+  min-height: 40px;
+  min-width: auto;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.print-preview-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 0.55rem;
+  padding: clamp(0.65rem, 1.5vh, 1rem);
+  border: 1px solid rgba(201, 162, 39, 0.2);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(10, 18, 36, 0.72), rgba(5, 10, 22, 0.9));
+}
+
+.print-preview-label {
+  margin: 0;
+  font-family: var(--font-seal);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(232, 197, 71, 0.75);
 }
 
 .print-target {
-  flex-shrink: 0;
-  box-shadow: var(--shadow);
+  flex: 0 1 auto;
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(201, 162, 39, 0.22);
   border: 1px solid rgba(201, 162, 39, 0.35);
-  background: #000;
+  background: #fff;
+  overflow: hidden;
 }
 
 #print-strip-img {
   display: block;
-  width: min(280px, 42vw);
-  height: auto;
-  aspect-ratio: 600 / 1800;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  background: #fff;
 }
 
-.print-screen[data-print-mode='sheet'] #print-strip-img,
-.print-screen[data-print-mode='a4'] #print-strip-img {
-  width: min(720px, 88vw);
-  aspect-ratio: 20.17 / 6.72;
+@media (max-width: 900px) {
+  .print-screen-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .print-screen-chrome {
+    max-height: none;
+  }
+
+  .print-screen-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .print-screen-actions .btn {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .print-preview-pane {
+    min-height: 48vh;
+  }
+
+  .print-adjust-grid {
+    max-height: 28vh;
+  }
 }
 
 /* ——— Album ——— */
@@ -2912,10 +3125,11 @@ select {
 }
 
 .album-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-  gap: 1rem;
-  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 1rem 0.9rem;
   flex: 1;
   min-height: 12rem;
 }
@@ -2929,10 +3143,25 @@ select {
   cursor: pointer;
   text-align: left;
   color: inherit;
+  flex: 0 0 auto;
+  width: var(--card-w, 122px);
+  --thumb-ar: 0.333;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease,
     transform 0.15s ease;
+}
+
+.album-card--portrait {
+  --card-w: 122px;
+}
+
+.album-card--square {
+  --card-w: 168px;
+}
+
+.album-card--landscape {
+  --card-w: 248px;
 }
 
 .album-card:hover {
@@ -2959,24 +3188,58 @@ select {
   background-size: 70%;
   background-position: center;
   background-repeat: no-repeat;
+  z-index: 2;
+}
+
+.album-card-media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background:
+    linear-gradient(145deg, rgba(8, 16, 32, 0.9), rgba(4, 8, 18, 0.98));
+  border: 1px solid rgba(201, 162, 39, 0.18);
+  overflow: hidden;
 }
 
 .album-card-thumb {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 2 / 6;
-  object-fit: cover;
-  background: #000;
+  aspect-ratio: var(--thumb-ar, 0.333);
+  object-fit: contain;
+  object-position: center;
+  background: #050b18;
 }
 
 .album-card-meta {
-  display: block;
-  margin-top: 0.4rem;
-  font-size: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  margin-top: 0.45rem;
+  min-width: 0;
+}
+
+.album-card-format {
+  font-family: var(--font-seal);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-pale);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.album-card-date {
+  font-size: 0.7rem;
   color: var(--cream-dim);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .album-empty {
@@ -2999,9 +3262,22 @@ select {
   margin: 0;
 }
 
+@media (max-width: 720px) {
+  .album-card--portrait {
+    --card-w: 104px;
+  }
+
+  .album-card--square {
+    --card-w: 140px;
+  }
+
+  .album-card--landscape {
+    --card-w: min(220px, calc(100vw - 2.5rem));
+  }
+}
+
 @media (max-width: 640px) {
   .album-grid {
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     gap: 0.7rem;
   }
 }
@@ -3021,6 +3297,7 @@ select {
 
   #app > *:not(.print-screen),
   .print-screen-chrome,
+  .print-preview-label,
   #settings {
     display: none !important;
   }
@@ -3035,19 +3312,38 @@ select {
     overflow: visible !important;
   }
 
-  .print-target {
-    border: none;
-    box-shadow: none;
+  .print-screen-layout,
+  .print-preview-pane {
+    display: block !important;
     position: absolute;
-    left: 0;
-    top: 0;
-    width: var(--paper-w);
-    height: var(--paper-h);
+    inset: 0;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  .print-target {
+    border: none !important;
+    box-shadow: none !important;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: var(--paper-w) !important;
+    height: var(--paper-h) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    max-width: none !important;
+    max-height: none !important;
   }
 
   #print-strip-img {
-    width: var(--paper-w) !important;
-    height: var(--paper-h) !important;
+    width: var(--sheet-w) !important;
+    height: var(--sheet-h) !important;
     max-width: none !important;
     object-fit: fill;
   }

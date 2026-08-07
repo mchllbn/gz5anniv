@@ -150,17 +150,42 @@ export const DEFAULT_ADJUSTMENTS = {
   warmth: 0,
   shadows: 0,
   highlights: 0,
+  clarity: 0,
 };
 
 export const ADJUST_CONTROLS = [
   { key: 'brightness', label: 'Brightness', min: -50, max: 50, step: 1 },
   { key: 'contrast', label: 'Contrast', min: -50, max: 50, step: 1 },
+  { key: 'clarity', label: 'Clarity', min: 0, max: 60, step: 1 },
   { key: 'saturation', label: 'Saturation', min: -80, max: 80, step: 1 },
   { key: 'exposure', label: 'Exposure', min: -40, max: 40, step: 1 },
   { key: 'warmth', label: 'Warmth', min: -40, max: 40, step: 1 },
   { key: 'shadows', label: 'Shadows', min: 0, max: 45, step: 1 },
   { key: 'highlights', label: 'Highlights', min: -45, max: 45, step: 1 },
 ];
+
+/** Print-screen advanced controls (permanent print color profile). */
+export const PRINT_ADJUST_CONTROLS = [
+  { key: 'brightness', label: 'Brightness', min: -30, max: 40, step: 1 },
+  { key: 'exposure', label: 'Exposure', min: -20, max: 30, step: 1 },
+  { key: 'contrast', label: 'Contrast', min: -30, max: 40, step: 1 },
+  { key: 'clarity', label: 'Clarity', min: 0, max: 50, step: 1 },
+  { key: 'shadows', label: 'Shadow lift', min: 0, max: 40, step: 1 },
+  { key: 'highlights', label: 'Highlights', min: -30, max: 20, step: 1 },
+  { key: 'saturation', label: 'Saturation', min: -40, max: 40, step: 1 },
+  { key: 'warmth', label: 'Warmth', min: -25, max: 25, step: 1 },
+];
+
+export const DEFAULT_PRINT_ADJUSTMENTS = {
+  brightness: 8,
+  contrast: 4,
+  clarity: 12,
+  saturation: 0,
+  exposure: 4,
+  warmth: 0,
+  shadows: 6,
+  highlights: -4,
+};
 
 function clamp(v) {
   return Math.max(0, Math.min(255, Math.round(v)));
@@ -184,7 +209,7 @@ export function hasActiveAdjustments(adj) {
   return Object.keys(DEFAULT_ADJUSTMENTS).some((k) => n[k] !== DEFAULT_ADJUSTMENTS[k]);
 }
 
-function applyAdjustments(ctx, w, h, adj) {
+export function applyAdjustments(ctx, w, h, adj) {
   const a = normalizeAdjustments(adj);
   const brMul = 1 + a.brightness / 100;
   const conMul = 1 + a.contrast / 100;
@@ -193,9 +218,11 @@ function applyAdjustments(ctx, w, h, adj) {
   const warm = a.warmth;
   const shadowLift = a.shadows;
   const hi = a.highlights;
+  const clarity = a.clarity || 0;
 
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
+  const copy = clarity > 0 ? new Uint8ClampedArray(d) : null;
 
   for (let i = 0; i < d.length; i += 4) {
     let r = d[i];
@@ -232,7 +259,6 @@ function applyAdjustments(ctx, w, h, adj) {
       b += lift;
     }
     if (hi !== 0 && lum > 115) {
-      const t = (lum - 115) / 140;
       const mul = 1 + hi / 100;
       r = 115 + (r - 115) * mul;
       g = 115 + (g - 115) * mul;
@@ -244,7 +270,53 @@ function applyAdjustments(ctx, w, h, adj) {
     d[i + 2] = clamp(b);
   }
 
+  if (clarity > 0 && copy) {
+    const amount = clarity / 100;
+    const stride = w * 4;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = (y * w + x) * 4;
+        for (let c = 0; c < 3; c++) {
+          const center = copy[i + c];
+          const blur =
+            (copy[i - stride - 4 + c] +
+              copy[i - stride + c] +
+              copy[i - stride + 4 + c] +
+              copy[i - 4 + c] +
+              center +
+              copy[i + 4 + c] +
+              copy[i + stride - 4 + c] +
+              copy[i + stride + c] +
+              copy[i + stride + 4 + c]) /
+            9;
+          d[i + c] = clamp(d[i + c] + (center - blur) * amount * 1.8);
+        }
+      }
+    }
+  }
+
   ctx.putImageData(img, 0, 0);
+}
+
+/** Bake print color adjustments into a PNG base64 (no data: prefix). */
+export async function applyPrintColorToPngBase64(pngBase64, adjustments) {
+  const adj = normalizeAdjustments(adjustments);
+  if (!hasActiveAdjustments(adj)) return pngBase64;
+
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Could not load print image for color adjust.'));
+    el.src = `data:image/png;base64,${pngBase64}`;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  applyAdjustments(ctx, canvas.width, canvas.height, adj);
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
 export function getFilter(id) {
@@ -301,10 +373,17 @@ export function drawFilterThumb(sourceCanvas, targetCanvas, filterId) {
 export function drawCover(ctx, source, dx, dy, dw, dh) {
   const sw = source.width;
   const sh = source.height;
+  if (!sw || !sh) return;
   const scale = Math.max(dw / sw, dh / sh);
   const rw = sw * scale;
   const rh = sh * scale;
   const ox = dx + (dw - rw) / 2;
   const oy = dy + (dh - rh) / 2;
+  const prevSmooth = ctx.imageSmoothingEnabled;
+  const prevQuality = ctx.imageSmoothingQuality;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(source, ox, oy, rw, rh);
+  ctx.imageSmoothingEnabled = prevSmooth;
+  if (prevQuality) ctx.imageSmoothingQuality = prevQuality;
 }

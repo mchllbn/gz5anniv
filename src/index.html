@@ -254,7 +254,7 @@
             <div class="panel-head-line">
               <h2>Album</h2>
               <span class="panel-head-sep" aria-hidden="true">·</span>
-              <p>Select up to 4 strips or polaroids for one landscape sheet</p>
+              <p>Select up to 4 items for one A4 print sheet · cards match each format size</p>
             </div>
             <img
               class="panel-logo agency-logo panel-head-logo-end"
@@ -287,16 +287,42 @@
 
       <!-- PRINT (Phase 4) — strip or A4 sheet -->
       <section class="screen print-screen" data-phase="printing" aria-label="Print photo strip">
-        <div class="print-screen-chrome">
-          <h2 id="print-screen-title">Print your strip</h2>
-          <p class="print-screen-hint" id="print-screen-hint">Choose your printer in the dialog. Landscape cut sheet.</p>
-          <div class="print-screen-actions">
-            <button type="button" id="btn-print-dialog" class="btn btn-primary btn-xl">Print</button>
-            <button type="button" id="btn-print-done" class="btn btn-ghost">Done</button>
+        <div class="print-screen-layout">
+          <aside class="print-screen-chrome" aria-label="Print controls">
+            <div class="print-chrome-head">
+              <h2 id="print-screen-title">Print your strip</h2>
+              <p class="print-screen-hint" id="print-screen-hint">Choose your printer in the dialog. Landscape cut sheet.</p>
+            </div>
+            <div class="print-screen-actions">
+              <button type="button" id="btn-print-dialog" class="btn btn-primary btn-xl">Open print dialog</button>
+              <button type="button" id="btn-print-advanced" class="btn btn-secondary" aria-expanded="false" aria-controls="print-advanced-panel">Advanced</button>
+              <button type="button" id="btn-print-done" class="btn btn-ghost">Done</button>
+            </div>
+            <div id="print-advanced-panel" class="print-advanced-panel" hidden>
+              <p class="print-advanced-title">Print color</p>
+              <p class="print-advanced-hint">Tune for paper output. Save permanently for every print, or apply only this time.</p>
+              <label class="check-row print-advanced-check" for="print-adj-enabled">
+                <input id="print-adj-enabled" type="checkbox" checked />
+                <span class="check-row-label">Apply color adjustments</span>
+              </label>
+              <label class="check-row print-advanced-check" for="print-adj-permanent">
+                <input id="print-adj-permanent" type="checkbox" checked />
+                <span class="check-row-label">Use permanently for all prints</span>
+              </label>
+              <div id="print-adjust-grid" class="print-adjust-grid"></div>
+              <div class="print-advanced-actions">
+                <button type="button" id="btn-print-adjust-reset" class="btn btn-ghost btn-sm">Reset</button>
+                <button type="button" id="btn-print-adjust-save" class="btn btn-secondary btn-sm">Save settings</button>
+              </div>
+              <p id="print-adjust-status" class="status" aria-live="polite"></p>
+            </div>
+          </aside>
+          <div class="print-preview-pane">
+            <p class="print-preview-label">Print preview</p>
+            <div class="print-target" id="print-target">
+              <img id="print-strip-img" alt="Photo strip ready to print" width="600" height="1800" />
+            </div>
           </div>
-        </div>
-        <div class="print-target" id="print-target">
-          <img id="print-strip-img" alt="Photo strip ready to print" width="600" height="1800" />
         </div>
       </section>
     </div>

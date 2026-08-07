@@ -3,6 +3,8 @@
  * localStorage fallback in browser preview.
  */
 
+import { composeSize } from './config.js';
+
 export const ALBUM_STORAGE_KEY = 'photobooth-album';
 export const MAX_SHEET_ITEMS = 4;
 /** @deprecated */
@@ -145,9 +147,12 @@ export async function makeAlbumThumb(pngBase64, maxHeight = 280) {
 
 /**
  * Shrink a composed strip for album storage.
- * 2×6″ portraits normalize to 600×1800 @ 300dpi; other formats keep aspect.
+ * Target pixel size follows the format canvas; other aspects are preserved.
  */
-export async function normalizeStripForAlbum(pngBase64, targetW = 600, targetH = 1800) {
+export async function normalizeStripForAlbum(pngBase64, formatId = '2x6', cfg = null) {
+  const size = composeSize(formatId, cfg || undefined);
+  const targetW = size.baseWidthPx;
+  const targetH = size.baseHeightPx;
   const img = await loadPngBase64(pngBase64);
   const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
   const targetRatio = targetW / targetH;

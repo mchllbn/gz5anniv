@@ -8,12 +8,14 @@
  * 4. If confettiOverlap is false, photos are redrawn on top to cover hole confetti
  */
 
-import { composeSize, scaleSlots, getConfig } from './config.js';
+import { composeSize, scaleSlots, getConfig, getFormat } from './config.js';
 import { applyFilterToCanvas, drawCover } from './filters.js';
 import { loadTemplateImage } from './frames.js';
 import { drawStickersOnCanvas } from './stickers.js';
 
 const CM_PER_IN = 2.54;
+const A4_PORTRAIT_WIDTH_IN = cmToIn(21);
+const A4_PORTRAIT_HEIGHT_IN = cmToIn(29.7);
 
 export function cmToIn(cm) {
   return cm / CM_PER_IN;
@@ -77,26 +79,99 @@ function drawImageCover(ctx, img, x, y, w, h) {
   ctx.drawImage(img, dx, dy, dw, dh);
 }
 
+function drawImageCoverRotated90(ctx, img, x, y, w, h) {
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) return;
+  const rotated = document.createElement('canvas');
+  rotated.width = srcH;
+  rotated.height = srcW;
+  const rctx = rotated.getContext('2d');
+  rctx.translate(rotated.width / 2, rotated.height / 2);
+  rctx.rotate(Math.PI / 2);
+  rctx.drawImage(img, -srcW / 2, -srcH / 2, srcW, srcH);
+  drawImageCover(ctx, rotated, x, y, w, h);
+}
+
+function isStripFormatId(formatId) {
+  return String(formatId || '').includes('2x6');
+}
+
+/** Slot width ÷ height on the A4 page for this saved item. */
+function itemPageAspect(formatId, img, cfg = getConfig()) {
+  if (isStripFormatId(formatId)) {
+    const iw = img.naturalWidth || img.width || 600;
+    const ih = img.naturalHeight || img.height || 1800;
+    return ih / Math.max(1, iw);
+  }
+  const f = getFormat(formatId, cfg);
+  if (f?.physicalSizeInches?.width && f?.physicalSizeInches?.height) {
+    return f.physicalSizeInches.width / f.physicalSizeInches.height;
+  }
+  if (f?.canvasPx?.width && f?.canvasPx?.height) {
+    return f.canvasPx.width / f.canvasPx.height;
+  }
+  const iw = img.naturalWidth || img.width || 1;
+  const ih = img.naturalHeight || img.height || 1;
+  return iw / Math.max(1, ih);
+}
+
+function drawImageContain(ctx, img, x, y, w, h) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const scale = Math.min(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
 /**
- * Lay out 1–4 images on a landscape cut sheet for printing.
  * @param {HTMLImageElement[]|HTMLCanvasElement[]} images
  * @param {{ sheet?: typeof STRIP_PRINT_SHEET, maxItems?: number, dpi?: number, gapIn?: number, cutGuides?: boolean, background?: string }} opts
  */
 export function composePrintSheet(images, opts = {}) {
   const sheet = opts.sheet || STRIP_PRINT_SHEET;
   const max = opts.maxItems ?? sheet.maxItems;
-  const list = (images || []).slice(0, max);
+  let list = (images || []).slice(0, max);
+  let formatIds = (opts.formatIds || []).slice(0, list.length);
   if (!list.length) throw new Error('Select at least one item to print.');
 
-  const { width, height, dpi } = printSheetCanvasSize(sheet, opts.dpi || sheet.dpi);
-  const gap = Math.round((opts.gapIn ?? 0.04) * dpi);
+  if (list.length === 1) {
+    list = [list[0], list[0]];
+    formatIds = [formatIds[0] || '', formatIds[0] || ''];
+  }
+
+  const cfg = getConfig();
+  const dpi = opts.dpi || sheet.dpi || 300;
+  const width = Math.round(A4_PORTRAIT_WIDTH_IN * dpi);
+  const height = Math.round(A4_PORTRAIT_HEIGHT_IN * dpi);
+  const margin = Math.round((opts.marginIn ?? 0.06) * dpi);
+  const gap = Math.round((opts.gapIn ?? 0.055) * dpi);
   const count = list.length;
-  const rowWidth = width - gap * 2;
-  const slotW = Math.floor((rowWidth - (count - 1) * gap) / count);
-  const slotH = height - gap * 2;
-  const startY = gap;
-  const totalSlotsWidth = count * slotW + (count - 1) * gap;
-  const startX = Math.round((width - totalSlotsWidth) / 2);
+  const usableW = width - margin * 2;
+  const usableH = height - margin * 2;
+
+  const slots = list.map((img, i) => {
+    const ar = itemPageAspect(formatIds[i] || '', img, cfg);
+    let slotW = usableW;
+    let slotH = Math.max(1, Math.round(slotW / ar));
+    return { img, formatId: formatIds[i] || '', slotW, slotH, ar };
+  });
+
+  let totalH = slots.reduce((sum, s) => sum + s.slotH, 0) + gap * (count - 1);
+  if (totalH > usableH) {
+    const scale = usableH / totalH;
+    for (const s of slots) {
+      s.slotH = Math.max(1, Math.floor(s.slotH * scale));
+      s.slotW = Math.max(1, Math.floor(s.slotH * s.ar));
+    }
+    totalH = slots.reduce((sum, s) => sum + s.slotH, 0) + gap * (count - 1);
+  }
+
+  let startY = margin + Math.round((usableH - totalH) / 2);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -105,14 +180,24 @@ export function composePrintSheet(images, opts = {}) {
   ctx.fillStyle = opts.background || '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
+  const cutYs = [];
   for (let i = 0; i < count; i++) {
-    const x = startX + i * (slotW + gap);
+    const { img, formatId, slotW, slotH } = slots[i];
+    const startX = Math.round((width - slotW) / 2);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x, startY, slotW, slotH);
+    ctx.rect(startX, startY, slotW, slotH);
     ctx.clip();
-    drawImageCover(ctx, list[i], x, startY, slotW, slotH);
+    if (isStripFormatId(formatId)) {
+      drawImageCoverRotated90(ctx, img, startX, startY, slotW, slotH);
+    } else {
+      drawImageContain(ctx, img, startX, startY, slotW, slotH);
+    }
     ctx.restore();
+    if (i < count - 1) {
+      cutYs.push(startY + slotH + gap / 2);
+    }
+    startY += slotH + gap;
   }
 
   if (opts.cutGuides) {
@@ -120,11 +205,10 @@ export function composePrintSheet(images, opts = {}) {
     ctx.strokeStyle = 'rgba(180, 180, 180, 0.55)';
     ctx.lineWidth = Math.max(1, Math.round(dpi / 300));
     ctx.setLineDash([4, 6]);
-    for (let i = 0; i < count - 1; i++) {
-      const gx = startX + (i + 1) * slotW + i * gap + gap / 2;
+    for (const gy of cutYs) {
       ctx.beginPath();
-      ctx.moveTo(gx, startY - gap);
-      ctx.lineTo(gx, startY + slotH + gap);
+      ctx.moveTo(margin - gap, gy);
+      ctx.lineTo(width - margin + gap, gy);
       ctx.stroke();
     }
     ctx.restore();

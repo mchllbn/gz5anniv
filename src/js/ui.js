@@ -6,6 +6,7 @@ import {
   loadBootstrap,
   getConfig,
   getFormat,
+  formatAspectRatio,
   getState,
   saveConfig,
   composeSize,
@@ -33,9 +34,11 @@ import {
   usesTetherCapture,
   startSessionPreview,
   stopSessionPreview,
+  refreshHdmiCrop,
+  syncHdmiPreviewToVideos,
 } from './camera.js';
 import { runCaptureSession, revokeShots, makeRemoteCaptureStill } from './capture.js';
-import { FILTERS, ADJUST_CONTROLS, DEFAULT_ADJUSTMENTS, normalizeAdjustments } from './filters.js';
+import { FILTERS, ADJUST_CONTROLS, DEFAULT_ADJUSTMENTS, normalizeAdjustments, PRINT_ADJUST_CONTROLS, DEFAULT_PRINT_ADJUSTMENTS, applyPrintColorToPngBase64 } from './filters.js';
 import {
   templatesForFormatCount,
   pickTemplateForColor,
@@ -105,7 +108,10 @@ function openSetup() {
     formatId,
     photoCount: defaultPhotoCount,
     countdownSeconds: d.countdownSeconds ?? 3,
-    mirrorPreview: d.mirrorPreview !== false,
+    mirrorPreview:
+      d.mirrorPreview != null
+        ? !!d.mirrorPreview
+        : cfg.camera?.backend !== 'capture-card',
     confettiOverlap: d.confettiOverlap !== false,
     filterId: d.filter || 'natural',
     templateId: tpl?.id || d.templateId || 'anniversary-navy',
@@ -448,6 +454,11 @@ function syncSetupPreviewVideos() {
   document.querySelectorAll('.strip-mock-slots .slot').forEach((slot) => {
     slot.classList.toggle('has-live', live);
   });
+  if (live) {
+    const main = $('setup-preview');
+    if (main) refreshHdmiCrop(main, getConfig().camera || {});
+    syncHdmiPreviewToVideos(setupPreviewVideoEls(), { mirror });
+  }
 }
 
 function detachSetupPreviewVideos() {
@@ -506,7 +517,7 @@ function updateCaptureSourceHint() {
     el.hidden = false;
   } else if (cfg.camera?.backend === 'capture-card') {
     el.textContent =
-      'HDMI capture card: Begin Capture saves a frame from the camera HDMI feed (USB Video device) — not your Windows desktop.';
+      'HDMI capture card: Begin Capture saves a frame from the camera HDMI feed (USB Video). Black bars are auto-cropped. For best quality on Fuji: set HDMI to 1080p and turn Info Display OFF.';
     el.hidden = false;
   } else {
     el.textContent = 'Begin Capture saves what you see in the live preview.';
@@ -625,6 +636,8 @@ async function startCapture() {
     const live = getStream();
     if (live?.active) {
       await attachActiveStream(video, { mirror: session.mirrorPreview !== false });
+      refreshHdmiCrop(video, cfg.camera || {});
+      syncHdmiPreviewToVideos([video], { mirror: session.mirrorPreview !== false });
     } else {
       await startCamera(video, {
         deviceId: session.deviceId || undefined,
@@ -632,6 +645,7 @@ async function startCapture() {
         cfg: getConfig(),
       });
       await waitForVideo(video);
+      refreshHdmiCrop(video, cfg.camera || {});
     }
     await populateCameras();
 
@@ -1305,12 +1319,27 @@ async function startOver() {
 }
 
 function printSheetForAlbumItems(strips) {
-  const polaroid = (strips || []).every((s) => String(s.formatId || '').includes('polaroid'));
-  return polaroid ? POLAROID_PRINT_SHEET : STRIP_PRINT_SHEET;
+  const formatIds = (strips || []).map((s) => s.formatId || '2x6');
+  const allStrips = formatIds.every((id) => String(id).includes('2x6'));
+  const allPolaroids = formatIds.every((id) => String(id).includes('polaroid'));
+  const kind = allStrips ? 'strip' : allPolaroids ? 'polaroid' : 'mixed';
+  return {
+    sheet: STRIP_PRINT_SHEET,
+    kind,
+  };
 }
 
-function sheetSizeLabel(sheet) {
+function sheetSizeLabel(sheet, kind = 'strip') {
+  if (sheet === STRIP_PRINT_SHEET) {
+    if (kind === 'mixed') return 'A4 (21.00×29.70 cm), mixed formats 2-up/4-up';
+    if (kind === 'polaroid') return 'A4 (21.00×29.70 cm), polaroid 2-up/4-up';
+    return 'A4 (21.00×29.70 cm), strip rows';
+  }
   return `${sheet.widthCm}×${sheet.heightCm} cm landscape`;
+}
+
+function sheetLayoutForKind(_kind) {
+  return { marginIn: 0.05, gapIn: 0.055 };
 }
 
 /* ——— Album ——— */
@@ -1365,6 +1394,18 @@ function toggleAlbumSelection(id) {
   void renderAlbum();
 }
 
+/** Album card layout from format — portrait strips vs landscape sheets. */
+function albumCardLayout(formatId) {
+  const id = String(formatId || '2x6');
+  const ar = formatAspectRatio(id, getConfig());
+  const fmt = getFormat(id, getConfig());
+  const label = fmt?.label || id;
+  let orient = 'portrait';
+  if (ar >= 1.15) orient = 'landscape';
+  else if (ar >= 0.85) orient = 'square';
+  return { ar, orient, label, formatId: id };
+}
+
 async function renderAlbum() {
   const grid = $('album-grid');
   const empty = $('album-empty');
@@ -1381,24 +1422,40 @@ async function renderAlbum() {
   if (empty) empty.hidden = true;
 
   for (const item of items) {
+    const layout = albumCardLayout(item.formatId || '2x6');
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'album-card' + (selected.has(item.id) ? ' is-selected' : '');
+    btn.className =
+      `album-card album-card--${layout.orient}` +
+      (selected.has(item.id) ? ' is-selected' : '');
     btn.setAttribute('role', 'listitem');
     btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
     btn.dataset.id = item.id;
+    btn.dataset.formatId = layout.formatId;
+    btn.dataset.orient = layout.orient;
+    btn.style.setProperty('--thumb-ar', String(layout.ar));
+
+    const media = document.createElement('div');
+    media.className = 'album-card-media';
 
     const img = document.createElement('img');
     img.className = 'album-card-thumb';
     img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
-    img.alt = `Strip from ${formatAlbumDate(item.createdAt)}`;
+    img.alt = `${layout.label} from ${formatAlbumDate(item.createdAt)}`;
     img.draggable = false;
+    media.appendChild(img);
 
-    const meta = document.createElement('span');
+    const meta = document.createElement('div');
     meta.className = 'album-card-meta';
-    meta.textContent = formatAlbumDate(item.createdAt);
+    const formatTag = document.createElement('span');
+    formatTag.className = 'album-card-format';
+    formatTag.textContent = layout.label;
+    const dateTag = document.createElement('span');
+    dateTag.className = 'album-card-date';
+    dateTag.textContent = formatAlbumDate(item.createdAt);
+    meta.append(formatTag, dateTag);
 
-    btn.append(img, meta);
+    btn.append(media, meta);
     btn.addEventListener('click', () => toggleAlbumSelection(item.id));
     grid.appendChild(btn);
   }
@@ -1408,7 +1465,7 @@ async function renderAlbum() {
 async function saveCurrentStripToAlbum({ openAfter = false } = {}) {
   await ensureComposedForExport();
   const session = getSession();
-  const pngBase64 = await normalizeStripForAlbum(session.pngBase64);
+  const pngBase64 = await normalizeStripForAlbum(session.pngBase64, session.formatId || '2x6', getConfig());
   let thumbDataUrl;
   try {
     thumbDataUrl = await makeAlbumThumb(pngBase64);
@@ -1472,48 +1529,62 @@ async function printSelectedAlbumStrips() {
   try {
     const strips = await getAlbumStripsByIds(ids);
     if (!strips.length) throw new Error('Selected items were not found in the album.');
-    const kinds = new Set(
-      strips.map((s) => (String(s.formatId || '').includes('polaroid') ? 'polaroid' : 'strip'))
-    );
-    if (kinds.size > 1) {
-      throw new Error('Select only strips or only polaroids for one print sheet.');
-    }
-    const sheetSpec = printSheetForAlbumItems(strips);
+    const sheetMeta = printSheetForAlbumItems(strips);
+    const sheetSpec = sheetMeta.sheet;
     const images = [];
     for (const strip of strips) {
       images.push(await loadPngBase64(strip.pngBase64));
     }
-    const sheet = composePrintSheet(images, { sheet: sheetSpec, cutGuides: true });
+    const layout = sheetLayoutForKind(sheetMeta.kind);
+    const sheet = composePrintSheet(images, {
+      sheet: sheetSpec,
+      cutGuides: true,
+      formatIds: strips.map((s) => s.formatId || ''),
+      marginIn: layout.marginIn,
+      gapIn: layout.gapIn,
+    });
     const pngBase64 = canvasToPngBase64(sheet);
     patchSession({
       pngBase64,
       printMode: 'sheet',
-      formatId: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid-sheet' : 'strip-sheet',
-      printSheetKey: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip',
+      formatId: 'a4-sheet',
+      printSheetKey: sheetMeta.kind,
     });
 
     const cfg = getConfig();
     const useSilentKiosk = cfg.silentPrint === true && window.photobooth?.printStrip;
     if (useSilentKiosk) {
       const copies = Number(getSession().printCopies) || cfg.copies || 1;
-      const result = await window.photobooth.printStrip({
-        pngBase64,
-        printerName: cfg.printerName,
-        copies,
-        widthPx: sheet.width,
-        heightPx: sheet.height,
-        pageWidthIn: sheetSpec.widthIn,
-        pageHeightIn: sheetSpec.heightIn,
-      });
-      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
-      setText($('album-status'), 'Printed — thank you!');
-      leaveAlbum();
-    } else {
+      setText($('album-status'), 'Print preview ready. Click Print now when alignment looks right.');
       await openPrintPage(pngBase64, {
-        autoDialog: true,
+        autoDialog: false,
         mode: 'sheet',
         sheet: sheetSpec,
+        printKind: sheetMeta.kind,
         returnPhase: Phase.ALBUM,
+        printAction: {
+          type: 'silent',
+          buttonLabel: 'Print now',
+          statusTarget: 'album-status',
+          payload: {
+            pngBase64,
+            printerName: cfg.printerName,
+            copies,
+            widthPx: sheet.width,
+            heightPx: sheet.height,
+            pageWidthIn: A4_PAGE_WIDTH_IN,
+            pageHeightIn: A4_PAGE_HEIGHT_IN,
+          },
+        },
+      });
+    } else {
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'sheet',
+        sheet: sheetSpec,
+        printKind: sheetMeta.kind,
+        returnPhase: Phase.ALBUM,
+        printAction: { type: 'dialog', buttonLabel: 'Open print dialog' },
       });
     }
   } catch (err) {
@@ -1555,8 +1626,219 @@ async function savePng() {
 
 let printPageResolve = null;
 let printReturnPhase = Phase.IDLE;
+let pendingPrintAction = null;
+let rawPrintPngBase64 = null;
+let printAdjustDraft = null;
+let printAdjustEnabledDraft = true;
+let printAdjustPermanentDraft = true;
+let printPreviewBusy = false;
+let printPreviewTimer = null;
+const A4_PAGE_WIDTH_IN = 8.27;
+const A4_PAGE_HEIGHT_IN = 11.69;
+
+function getPrintAdjustments() {
+  return normalizeAdjustments(getConfig().printAdjustments || DEFAULT_PRINT_ADJUSTMENTS);
+}
+
+function isPrintColorActive() {
+  return printAdjustEnabledDraft !== false;
+}
+
+async function refreshPrintPreviewWithAdjustments() {
+  if (!rawPrintPngBase64) return;
+  while (printPreviewBusy) {
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  printPreviewBusy = true;
+  try {
+    let out = rawPrintPngBase64;
+    if (isPrintColorActive()) {
+      const adj = normalizeAdjustments(printAdjustDraft || getPrintAdjustments());
+      out = await applyPrintColorToPngBase64(rawPrintPngBase64, adj);
+    }
+    await loadPrintStripImage(out);
+    if (pendingPrintAction?.type === 'silent' && pendingPrintAction.payload) {
+      pendingPrintAction = {
+        ...pendingPrintAction,
+        payload: { ...pendingPrintAction.payload, pngBase64: out },
+      };
+    }
+    patchSession({ pngBase64: out });
+  } catch (err) {
+    setText($('print-adjust-status'), err.message || 'Could not update print preview');
+  } finally {
+    printPreviewBusy = false;
+  }
+}
+
+function syncPrintColorOptionChecks() {
+  const enabledEl = $('print-adj-enabled');
+  const permanentEl = $('print-adj-permanent');
+  if (enabledEl) enabledEl.checked = printAdjustEnabledDraft !== false;
+  if (permanentEl) permanentEl.checked = printAdjustPermanentDraft !== false;
+  const panel = $('print-advanced-panel');
+  panel?.classList.toggle('is-disabled', printAdjustEnabledDraft === false);
+  const saveBtn = $('btn-print-adjust-save');
+  if (saveBtn) {
+    saveBtn.textContent =
+      printAdjustPermanentDraft !== false ? 'Save for all prints' : 'Apply to this print only';
+  }
+}
+
+function setPrintAction(action = null) {
+  pendingPrintAction = action;
+  const btn = $('btn-print-dialog');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = action?.buttonLabel || 'Print';
+}
+
+function syncPrintAdjustValues() {
+  const adj = printAdjustDraft || getPrintAdjustments();
+  for (const spec of PRINT_ADJUST_CONTROLS) {
+    const input = $(`print-adj-${spec.key}`);
+    const val = $(`print-adj-val-${spec.key}`);
+    if (input) input.value = String(adj[spec.key] ?? 0);
+    if (val) val.textContent = String(adj[spec.key] ?? 0);
+  }
+  syncPrintColorOptionChecks();
+}
+
+function renderPrintAdjustControls() {
+  const grid = $('print-adjust-grid');
+  if (!grid || grid.dataset.ready === '1') {
+    syncPrintAdjustValues();
+    return;
+  }
+  grid.innerHTML = '';
+  printAdjustDraft = { ...getPrintAdjustments() };
+  for (const spec of PRINT_ADJUST_CONTROLS) {
+    const row = document.createElement('div');
+    row.className = 'print-adjust-row';
+    const label = document.createElement('label');
+    label.htmlFor = `print-adj-${spec.key}`;
+    label.textContent = spec.label;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `print-adj-${spec.key}`;
+    input.min = String(spec.min);
+    input.max = String(spec.max);
+    input.step = String(spec.step);
+    input.value = String(printAdjustDraft[spec.key] ?? 0);
+    const val = document.createElement('span');
+    val.className = 'print-adjust-value';
+    val.id = `print-adj-val-${spec.key}`;
+    val.textContent = String(printAdjustDraft[spec.key] ?? 0);
+    input.addEventListener('input', () => {
+      printAdjustDraft = {
+        ...(printAdjustDraft || getPrintAdjustments()),
+        [spec.key]: Number(input.value),
+      };
+      val.textContent = String(input.value);
+      schedulePrintPreviewRefresh();
+    });
+    row.append(label, input, val);
+    grid.appendChild(row);
+  }
+  grid.dataset.ready = '1';
+  syncPrintColorOptionChecks();
+}
+
+function togglePrintAdvancedPanel() {
+  const panel = $('print-advanced-panel');
+  const btn = $('btn-print-advanced');
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn?.classList.toggle('active', open);
+  if (open) {
+    const cfg = getConfig();
+    printAdjustEnabledDraft = cfg.printAdjustmentsEnabled !== false;
+    printAdjustPermanentDraft = cfg.printAdjustmentsPermanent !== false;
+    printAdjustDraft = { ...getPrintAdjustments() };
+    renderPrintAdjustControls();
+    setText($('print-adjust-status'), '');
+  }
+}
+
+function schedulePrintPreviewRefresh() {
+  if (printPreviewTimer) clearTimeout(printPreviewTimer);
+  printPreviewTimer = setTimeout(() => {
+    void refreshPrintPreviewWithAdjustments();
+  }, 180);
+}
+
+async function savePrintAdjustmentsPermanently() {
+  const adj = normalizeAdjustments(printAdjustDraft || getPrintAdjustments());
+  const enabled = printAdjustEnabledDraft !== false;
+  const permanent = printAdjustPermanentDraft !== false;
+
+  if (permanent) {
+    await saveConfig({
+      printAdjustments: adj,
+      printAdjustmentsEnabled: enabled,
+      printAdjustmentsPermanent: true,
+    });
+    printAdjustDraft = { ...adj };
+    setText(
+      $('print-adjust-status'),
+      enabled
+        ? 'Saved permanently — used for all future prints.'
+        : 'Saved permanently — color adjustments OFF for all future prints.'
+    );
+  } else {
+    // Keep permanent profile in config, but mark permanent flag off so future opens can stay temporary.
+    await saveConfig({
+      printAdjustmentsPermanent: false,
+      printAdjustmentsEnabled: enabled,
+    });
+    setText(
+      $('print-adjust-status'),
+      enabled
+        ? 'Applied to this print only (not saved for future prints).'
+        : 'Color adjustments off for this print.'
+    );
+  }
+  syncPrintColorOptionChecks();
+  await refreshPrintPreviewWithAdjustments();
+}
+
+async function resetPrintAdjustments() {
+  printAdjustDraft = { ...DEFAULT_PRINT_ADJUSTMENTS };
+  printAdjustEnabledDraft = true;
+  syncPrintAdjustValues();
+  setText($('print-adjust-status'), 'Reset to default bright-print profile.');
+  await refreshPrintPreviewWithAdjustments();
+}
+
+function onPrintColorOptionChange() {
+  const enabledEl = $('print-adj-enabled');
+  const permanentEl = $('print-adj-permanent');
+  printAdjustEnabledDraft = !!enabledEl?.checked;
+  printAdjustPermanentDraft = !!permanentEl?.checked;
+  syncPrintColorOptionChecks();
+  schedulePrintPreviewRefresh();
+  setText(
+    $('print-adjust-status'),
+    printAdjustEnabledDraft
+      ? printAdjustPermanentDraft
+        ? 'Will apply to this print. Save to keep for all prints.'
+        : 'Will apply to this print only.'
+      : 'Color adjustments disabled — original colors used.'
+  );
+}
 
 function finishPrintSession() {
+  setPrintAction(null);
+  rawPrintPngBase64 = null;
+  printAdjustDraft = null;
+  printAdjustEnabledDraft = true;
+  printAdjustPermanentDraft = true;
+  const panel = $('print-advanced-panel');
+  if (panel) panel.hidden = true;
+  $('btn-print-advanced')?.setAttribute('aria-expanded', 'false');
+  $('btn-print-advanced')?.classList.remove('active');
   if (printPageResolve) {
     printPageResolve({ ok: true });
     printPageResolve = null;
@@ -1588,36 +1870,96 @@ function loadPrintStripImage(pngBase64) {
   });
 }
 
+function applyPrintPreviewSizing(pageWidthIn, pageHeightIn) {
+  const target = $('print-target');
+  const img = $('print-strip-img');
+  const pane = document.querySelector('.print-preview-pane');
+  if (!target || !img) return;
+
+  const paneRect = pane?.getBoundingClientRect?.();
+  const maxWidth = Math.max(
+    220,
+    Math.round((paneRect?.width || window.innerWidth * 0.55) - 36)
+  );
+  const maxHeight = Math.max(
+    240,
+    Math.round((paneRect?.height || window.innerHeight * 0.7) - 48)
+  );
+  const baseWidthPx = Math.max(1, pageWidthIn * 100);
+  const baseHeightPx = Math.max(1, pageHeightIn * 100);
+  const scale = Math.min(maxWidth / baseWidthPx, maxHeight / baseHeightPx);
+  const width = Math.max(180, Math.round(baseWidthPx * scale));
+  const height = Math.max(180, Math.round(baseHeightPx * scale));
+
+  target.style.width = `${width}px`;
+  target.style.height = `${height}px`;
+  img.style.width = '100%';
+  img.style.height = '100%';
+}
+
 /** In-app print page → system print dialog (format-aware). */
 async function openPrintPage(
   pngBase64,
-  { autoDialog = true, mode = 'strip', sheet = STRIP_PRINT_SHEET, returnPhase = Phase.IDLE } = {}
+  {
+    autoDialog = true,
+    mode = 'strip',
+    sheet = STRIP_PRINT_SHEET,
+    printKind = null,
+    returnPhase = Phase.IDLE,
+    printAction = null,
+  } = {}
 ) {
-  await loadPrintStripImage(pngBase64);
+  rawPrintPngBase64 = pngBase64;
+  const cfg = getConfig();
+  printAdjustEnabledDraft = cfg.printAdjustmentsEnabled !== false;
+  printAdjustPermanentDraft = cfg.printAdjustmentsPermanent !== false;
+  printAdjustDraft = { ...getPrintAdjustments() };
+  let colored = pngBase64;
+  if (printAdjustEnabledDraft !== false) {
+    colored = await applyPrintColorToPngBase64(pngBase64, printAdjustDraft);
+  }
+  await loadPrintStripImage(colored);
   printReturnPhase = returnPhase;
-  patchSession({ printMode: mode });
+  patchSession({ printMode: mode, pngBase64: colored });
+  if (printAction?.type === 'silent' && printAction.payload) {
+    printAction = {
+      ...printAction,
+      payload: { ...printAction.payload, pngBase64: colored },
+    };
+  }
+  setPrintAction(printAction);
+  renderPrintAdjustControls();
+  const panel = $('print-advanced-panel');
+  if (panel) panel.hidden = true;
+  $('btn-print-advanced')?.setAttribute('aria-expanded', 'false');
+  $('btn-print-advanced')?.classList.remove('active');
   const screen = document.querySelector('.print-screen');
   const title = $('print-screen-title');
   const hint = $('print-screen-hint');
+  let paperW = A4_PAGE_WIDTH_IN;
+  let paperH = A4_PAGE_HEIGHT_IN;
   try {
     if (mode === 'sheet' || mode === 'a4') {
       const sheetSpec = sheet || STRIP_PRINT_SHEET;
-      screen?.style?.setProperty('--paper-w', `${sheetSpec.widthIn}in`);
-      screen?.style?.setProperty('--paper-h', `${sheetSpec.heightIn}in`);
+      screen?.style?.setProperty('--paper-w', `${A4_PAGE_WIDTH_IN}in`);
+      screen?.style?.setProperty('--paper-h', `${A4_PAGE_HEIGHT_IN}in`);
+      screen?.style?.setProperty('--sheet-w', `${A4_PAGE_WIDTH_IN}in`);
+      screen?.style?.setProperty('--sheet-h', `${A4_PAGE_HEIGHT_IN}in`);
       screen?.setAttribute('data-print-mode', 'sheet');
-      const kind = sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip';
+      const kind = printKind || (sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip');
       if (title) title.textContent = `Print ${kind} sheet`;
       if (hint) {
-        hint.innerHTML = `Choose your printer. Paper: <strong>${sheetSizeLabel(sheetSpec)}</strong> · up to ${MAX_SHEET_ITEMS} ${kind}s.`;
+        hint.innerHTML = `Review this preview first, then print. Paper: <strong>${sheetSizeLabel(sheetSpec, kind)}</strong> · up to ${MAX_SHEET_ITEMS} items.`;
       }
       const img = $('print-strip-img');
       if (img) {
-        img.width = Math.round(sheetSpec.widthIn * 300);
-        img.height = Math.round(sheetSpec.heightIn * 300);
+        img.width = Math.round(A4_PAGE_WIDTH_IN * 300);
+        img.height = Math.round(A4_PAGE_HEIGHT_IN * 300);
         img.alt = `${kind} print sheet ready to print`;
       }
+      paperW = A4_PAGE_WIDTH_IN;
+      paperH = A4_PAGE_HEIGHT_IN;
     } else {
-      const cfg = getConfig();
       const session = getSession();
       const { pageWidthIn: pw, pageHeightIn: ph } = singlePrintPageInches(
         session.formatId || '2x6',
@@ -1625,10 +1967,12 @@ async function openPrintPage(
       );
       screen?.style?.setProperty('--paper-w', `${pw}in`);
       screen?.style?.setProperty('--paper-h', `${ph}in`);
+      screen?.style?.setProperty('--sheet-w', `${pw}in`);
+      screen?.style?.setProperty('--sheet-h', `${ph}in`);
       screen?.setAttribute('data-print-mode', 'strip');
       if (title) title.textContent = 'Print your strip';
       if (hint) {
-        hint.innerHTML = `Choose your printer in the dialog. Paper: <strong>${(pw * 2.54).toFixed(2)}×${(ph * 2.54).toFixed(2)} cm</strong> landscape cell.`;
+        hint.innerHTML = `Review the preview, then print. Paper: <strong>${(pw * 2.54).toFixed(2)}×${(ph * 2.54).toFixed(2)} cm</strong>.`;
       }
       const img = $('print-strip-img');
       if (img) {
@@ -1636,11 +1980,16 @@ async function openPrintPage(
         img.height = Math.round(ph * 300);
         img.alt = 'Photo strip ready to print';
       }
+      paperW = pw;
+      paperH = ph;
     }
   } catch {
     /* optional */
   }
   go(Phase.PRINTING);
+  requestAnimationFrame(() => {
+    applyPrintPreviewSizing(paperW, paperH);
+  });
   return new Promise((resolve) => {
     printPageResolve = resolve;
     const runDialog = () => {
@@ -1679,30 +2028,39 @@ async function doPrint() {
       }
     }
 
-    let result;
     const useSilentKiosk =
       cfg.silentPrint === true && window.photobooth?.printStrip;
     if (useSilentKiosk) {
       const copies = Number(getSession().printCopies) || cfg.copies || 1;
       const { pageWidthIn, pageHeightIn } = singlePrintPageInches(session.formatId, cfg);
-      result = await window.photobooth.printStrip({
-        pngBase64,
-        printerName: cfg.printerName,
-        copies,
-        widthPx: size.width,
-        heightPx: size.height,
-        pageWidthIn,
-        pageHeightIn,
+      setText($('customize-status'), 'Print preview ready. Click Print now when alignment looks right.');
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'strip',
+        returnPhase: Phase.IDLE,
+        printAction: {
+          type: 'silent',
+          buttonLabel: 'Print now',
+          statusTarget: 'customize-status',
+          payload: {
+            pngBase64,
+            printerName: cfg.printerName,
+            copies,
+            widthPx: size.width,
+            heightPx: size.height,
+            pageWidthIn,
+            pageHeightIn,
+          },
+        },
       });
-      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
-      setText($('customize-status'), 'Printed — thank you!');
-      await stopSetupPreviewCompletely();
-      clearStripPreview();
-      clearAll(cfg.defaults);
-      go(Phase.IDLE, { force: true });
     } else {
       setText($('customize-status'), 'Opening print page…');
-      await openPrintPage(pngBase64, { autoDialog: true, mode: 'strip', returnPhase: Phase.IDLE });
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'strip',
+        returnPhase: Phase.IDLE,
+        printAction: { type: 'dialog', buttonLabel: 'Open print dialog' },
+      });
     }
   } catch (err) {
     go(Phase.CUSTOMIZE, { force: true });
@@ -1943,7 +2301,41 @@ function bind() {
     patchSession({ safeBounds: e.target.checked });
     scheduleRecompose();
   });
-  $('btn-print-dialog')?.addEventListener('click', () => window.print());
+  $('btn-print-dialog')?.addEventListener('click', async () => {
+    const action = pendingPrintAction;
+    if (!action || action.type === 'dialog') {
+      // Ensure latest color profile is baked into the on-screen print image.
+      if (rawPrintPngBase64) await refreshPrintPreviewWithAdjustments();
+      window.print();
+      return;
+    }
+    const btn = $('btn-print-dialog');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Printing…';
+    }
+    try {
+      if (rawPrintPngBase64) await refreshPrintPreviewWithAdjustments();
+      const result = await window.photobooth.printStrip(pendingPrintAction.payload);
+      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
+      if (action.statusTarget) setText($(action.statusTarget), 'Printed — thank you!');
+      finishPrintSession();
+    } catch (err) {
+      if (action.statusTarget) setText($(action.statusTarget), err.message || 'Print failed');
+      const targetPhase = printReturnPhase === Phase.ALBUM ? Phase.ALBUM : Phase.CUSTOMIZE;
+      go(targetPhase, { force: true });
+    } finally {
+      if (btn && getPhase() === Phase.PRINTING) {
+        btn.disabled = false;
+        btn.textContent = action.buttonLabel || 'Print';
+      }
+    }
+  });
+  $('btn-print-advanced')?.addEventListener('click', () => togglePrintAdvancedPanel());
+  $('btn-print-adjust-save')?.addEventListener('click', () => void savePrintAdjustmentsPermanently());
+  $('btn-print-adjust-reset')?.addEventListener('click', () => void resetPrintAdjustments());
+  $('print-adj-enabled')?.addEventListener('change', () => onPrintColorOptionChange());
+  $('print-adj-permanent')?.addEventListener('change', () => onPrintColorOptionChange());
   $('btn-print-done')?.addEventListener('click', () => finishPrintSession());
   window.addEventListener('afterprint', () => {
     if (getPhase() === Phase.PRINTING && printPageResolve) {
