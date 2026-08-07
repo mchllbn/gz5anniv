@@ -31,7 +31,7 @@ export function defaultSetupFromConfig() {
     photoCount: d.photoCount ?? 3,
     countdownSeconds: d.countdownSeconds ?? 3,
     mirrorPreview: d.mirrorPreview !== false,
-    confettiOverlap: d.confettiOverlap !== false,
+    confettiOverlap: false,
     filterId: d.filter || 'natural',
     templateId: d.templateId || 'anniversary-navy',
   };

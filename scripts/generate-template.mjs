@@ -758,9 +758,11 @@ function goldGradientColor(t, theme, along = 0.5) {
   ];
 }
 
-/** Gradient gold frame around each photo hole. */
-function drawThinSlotBorders(png, slots, theme) {
-  const widthPx = Math.max(1, Math.min(18, Number(theme.slotBorderPx) || 12));
+/**
+ * Classic sharp gold frame around each photo hole (strips / Polaroid).
+ */
+function drawClassicSlotBorders(png, slots, theme) {
+  const widthPx = Math.max(1, Math.min(18, Number(theme.slotBorderPx) || 5));
 
   for (const s of slots) {
     const x = Math.round(s.x);
@@ -792,11 +794,102 @@ function drawThinSlotBorders(png, slots, theme) {
   }
 }
 
+/** True if (px,py) is inside a rounded rectangle. */
+function pointInRoundedRect(px, py, x, y, w, h, radius) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  if (px < x || py < y || px >= x + w || py >= y + h) return false;
+  const lx = px - x;
+  const ly = py - y;
+  if (lx >= r && lx < w - r) return true;
+  if (ly >= r && ly < h - r) return true;
+  const cx = lx < r ? r : w - r;
+  const cy = ly < r ? r : h - r;
+  const dx = lx - cx;
+  const dy = ly - cy;
+  return dx * dx + dy * dy <= r * r;
+}
+
+/**
+ * Soft-corner gold frames drawn entirely outside each photo hole
+ * (into gutters/margins — never into image placements).
+ */
+function drawSoftSlotBorders(png, slots, theme) {
+  const widthPx = Math.max(4, Math.min(24, Number(theme.slotBorderPx) || 14));
+  const radius = Math.max(
+    8,
+    Math.min(36, Number(theme.slotFrameRadius) || Math.round(widthPx * 1.1))
+  );
+
+  for (const s of slots) {
+    const x = Math.round(s.x);
+    const y = Math.round(s.y);
+    const w = Math.round(s.w);
+    const h = Math.round(s.h);
+    if (w < 8 || h < 8) continue;
+
+    const ox = x - widthPx;
+    const oy = y - widthPx;
+    const ow = w + widthPx * 2;
+    const oh = h + widthPx * 2;
+    const rOuter = Math.min(radius + widthPx, ow / 2, oh / 2);
+    const rInner = Math.min(radius, w / 2, h / 2);
+    const peri = Math.max(1, 2 * (ow + oh));
+
+    const x0 = Math.max(0, Math.floor(ox));
+    const y0 = Math.max(0, Math.floor(oy));
+    const x1 = Math.min(png.width - 1, Math.ceil(ox + ow));
+    const y1 = Math.min(png.height - 1, Math.ceil(oy + oh));
+
+    for (let py = y0; py <= y1; py++) {
+      for (let px = x0; px <= x1; px++) {
+        const inOuter = pointInRoundedRect(px + 0.5, py + 0.5, ox, oy, ow, oh, rOuter);
+        if (!inOuter) continue;
+        const inInner = pointInRoundedRect(px + 0.5, py + 0.5, x, y, w, h, rInner);
+        if (inInner) continue;
+
+        const dLeft = px + 0.5 - ox;
+        const dRight = ox + ow - (px + 0.5);
+        const dTop = py + 0.5 - oy;
+        const dBottom = oy + oh - (py + 0.5);
+        const distOut = Math.min(dLeft, dRight, dTop, dBottom);
+        const depth = Math.max(0, Math.min(1, distOut / Math.max(1, widthPx)));
+        const along = ((px - ox) / Math.max(1, ow) + (py - oy) / peri) % 1;
+        setPixelOpaque(png, px, py, goldGradientColor(depth, theme, along));
+      }
+    }
+  }
+}
+
+function drawThinSlotBorders(png, slots, theme) {
+  if (theme?.softSlotFrames) drawSoftSlotBorders(png, slots, theme);
+  else drawClassicSlotBorders(png, slots, theme);
+}
+
+function classicFrameTheme(theme) {
+  return {
+    ...theme,
+    softSlotFrames: false,
+    slotBorderPx: 5,
+    outerBorderPx: 7,
+  };
+}
+
+function softFrameTheme(theme) {
+  return {
+    ...theme,
+    softSlotFrames: true,
+    // Stay inside gutters (~44px) — never into photo holes
+    slotBorderPx: 14,
+    outerBorderPx: 16,
+    slotFrameRadius: 18,
+  };
+}
+
 /** Outer sheet/strip gold border with the same metallic gradient. */
 function drawOuterGoldBorder(png, theme, widthOverride = null) {
   const widthPx = Math.max(
     2,
-    Math.min(24, Number(widthOverride ?? theme?.outerBorderPx) || 16)
+    Math.min(32, Number(widthOverride ?? theme?.outerBorderPx) || 16)
   );
   const W = png.width;
   const H = png.height;
@@ -1055,11 +1148,11 @@ function buildAnniversarySheet4x6(themeKey, slots, brandPanel, outName) {
   const base = ANNIV_THEMES[themeKey];
   if (!base) throw new Error(`Unknown theme: ${themeKey}`);
   // Landscape BGs already include ribbons/bokeh — use them as the field, skip extra confetti plate.
-  const theme = {
+  const theme = softFrameTheme({
     ...base,
     fieldTexture: base.fieldTexture4x6 || base.fieldTexture,
     confettiTexture: null,
-  };
+  });
   const W = 1800;
   const H = 1200;
   const out = new PNG({ width: W, height: H, colorType: 6 });
@@ -1200,8 +1293,8 @@ function buildAnniversarySheet4x6FromReference(refName, slots, outName, borderTh
 }
 
 function buildAnniversaryStrip(themeKey, slots, outName) {
-  const theme = ANNIV_THEMES[themeKey];
-  if (!theme) throw new Error(`Unknown theme: ${themeKey}`);
+  const theme = classicFrameTheme(ANNIV_THEMES[themeKey]);
+  if (!ANNIV_THEMES[themeKey]) throw new Error(`Unknown theme: ${themeKey}`);
 
   const out = new PNG({ width: TARGET_W, height: TARGET_H, colorType: 6 });
   fillThemeField(out, theme);
@@ -1217,7 +1310,6 @@ function buildAnniversaryStrip(themeKey, slots, outName) {
   }
 
   applyThemeEffects(out, theme, slots);
-  // Keep confetti/spark alpha in photo holes for optional overlap at compose time
   drawThinSlotBorders(out, slots, theme);
   blitAnniversaryLogo(out, footerY, footerH, TARGET_W, 0, null, theme, {
     // Match reference: large 20 mark, seal below dates (stacked, not overlaid)
@@ -1281,7 +1373,7 @@ function buildPrimary3() {
 }
 
 function buildClassic(n, slots, outName, themeKey = 'gold') {
-  const theme = ANNIV_THEMES[themeKey] || ANNIV_THEMES.gold;
+  const theme = classicFrameTheme(ANNIV_THEMES[themeKey] || ANNIV_THEMES.gold);
   const out = new PNG({ width: TARGET_W, height: TARGET_H, colorType: 6 });
   fillThemeField(out, theme);
 
@@ -1339,8 +1431,11 @@ const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
 function upsertTemplate(partial) {
   if (!Array.isArray(cfg.templates)) cfg.templates = [];
   const existing = cfg.templates.find((x) => x.id === partial.id);
-  if (existing) Object.assign(existing, partial);
-  else cfg.templates.push(partial);
+  if (existing) {
+    Object.assign(existing, partial);
+    if (!('brandOverlapPx' in partial)) delete existing.brandOverlapPx;
+    if (!('softSlotFrames' in partial)) delete existing.softSlotFrames;
+  } else cfg.templates.push(partial);
 }
 
 // Gold + navy anniversary frames (strip color picker)
@@ -1385,7 +1480,7 @@ function buildAligned4x6Grid(
   canvasW = 1800,
   canvasH = 1200,
   margin = 40,
-  gutter = 36,
+  gutter = 44,
   leftFrac = 0.38
 ) {
   const usableW = canvasW - margin * 2;
@@ -1409,7 +1504,7 @@ function buildAligned4x6Grid(
 }
 
 // 4×6 landscape — narrower brand column, wider right photos
-const GRID_4X6 = buildAligned4x6Grid(1800, 1200, 40, 36, 0.38);
+const GRID_4X6 = buildAligned4x6Grid(1800, 1200, 40, 44, 0.38);
 const SLOTS_4X6_3 = GRID_4X6.slots;
 const BRAND_4X6 = GRID_4X6.brand;
 console.log('4×6 aligned grid', {
@@ -1433,6 +1528,7 @@ upsertTemplate({
   path: 'assets/templates/sheet-gold-4x6-3.png',
   overlayPath: null,
   underfillColor: ANNIV_THEMES.gold.underfillHex,
+  softSlotFrames: true,
   slots: SLOTS_4X6_3,
 });
 upsertTemplate({
@@ -1443,6 +1539,7 @@ upsertTemplate({
   path: 'assets/templates/sheet-blue-4x6-3.png',
   overlayPath: null,
   underfillColor: ANNIV_THEMES.blue.underfillHex,
+  softSlotFrames: true,
   slots: SLOTS_4X6_3,
 });
 fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
@@ -1452,7 +1549,7 @@ fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
  * 20 mark centered and overlapping the photo/chin seam (reference).
  */
 function buildPolaroidPortrait(themeKey = 'blue') {
-  const theme = ANNIV_THEMES[themeKey] || ANNIV_THEMES.blue;
+  const theme = classicFrameTheme(ANNIV_THEMES[themeKey] || ANNIV_THEMES.blue);
   const W = 1200;
   const H = 1800;
   const side = 64;
@@ -1536,6 +1633,7 @@ function buildPolaroidPortrait(themeKey = 'blue') {
     path: `assets/templates/${outName}`,
     overlayPath: null,
     underfillColor: theme.underfillHex || (themeKey === 'gold' ? '#d29e34' : '#050b28'),
+    brandOverlapPx: overlap,
     slots: [slot],
   });
 
@@ -1548,11 +1646,11 @@ function buildPolaroidPortrait(themeKey = 'blue') {
  * three equal photos along the bottom.
  */
 function buildFourUp6x4(themeKey = 'blue') {
-  const theme = ANNIV_THEMES[themeKey] || ANNIV_THEMES.blue;
+  const theme = softFrameTheme(ANNIV_THEMES[themeKey] || ANNIV_THEMES.blue);
   const W = 1800;
   const H = 1200;
   const margin = 48;
-  const gutter = 32;
+  const gutter = 44;
   const usableW = W - margin * 2;
   const usableH = H - margin * 2;
 
@@ -1636,6 +1734,7 @@ function buildFourUp6x4(themeKey = 'blue') {
     path: `assets/templates/${outName}`,
     overlayPath: null,
     underfillColor: theme.underfillHex || (themeKey === 'gold' ? '#d29e34' : '#050b28'),
+    softSlotFrames: true,
     slots,
   });
 

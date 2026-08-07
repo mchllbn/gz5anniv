@@ -112,7 +112,7 @@ function openSetup() {
       d.mirrorPreview != null
         ? !!d.mirrorPreview
         : cfg.camera?.backend !== 'capture-card',
-    confettiOverlap: d.confettiOverlap !== false,
+    confettiOverlap: false,
     filterId: d.filter || 'natural',
     templateId: tpl?.id || d.templateId || 'anniversary-navy',
     printCopies: getConfig().copies || 1,
@@ -241,8 +241,6 @@ function renderSetup() {
   }
 
   $('setup-mirror').checked = getSession().mirrorPreview !== false;
-  const confettiEl = $('setup-confetti-overlap');
-  if (confettiEl) confettiEl.checked = getSession().confettiOverlap !== false;
 
   void renderOrientationPreview(getSession().photoCount);
 
@@ -271,19 +269,19 @@ function fallbackSlotsForCount(n, baseW, baseH) {
   // 4×6 landscape collage (1800×1200) — narrower brand column, wider right photos
   if (baseW > baseH && n === 3) {
     return [
-      { x: 40, y: 40, w: 653, h: 542 },
-      { x: 729, y: 40, w: 1031, h: 542 },
-      { x: 729, y: 618, w: 1031, h: 542 },
+      { x: 40, y: 40, w: 653, h: 538 },
+      { x: 737, y: 40, w: 1023, h: 538 },
+      { x: 737, y: 622, w: 1023, h: 538 },
     ];
   }
 
   // 6×4 four-up — logo TL, large TR, 3 small bottom
   if (baseW > baseH && n === 4) {
     return [
-      { x: 659, y: 48, w: 1093, h: 600 },
-      { x: 49, y: 680, w: 546, h: 472 },
-      { x: 627, y: 680, w: 546, h: 472 },
-      { x: 1205, y: 680, w: 546, h: 472 },
+      { x: 671, y: 48, w: 1081, h: 593 },
+      { x: 49, y: 685, w: 538, h: 467 },
+      { x: 631, y: 685, w: 538, h: 467 },
+      { x: 1213, y: 685, w: 538, h: 467 },
     ];
   }
 
@@ -380,28 +378,32 @@ async function renderOrientationPreview(photoCount) {
   if (frameImg && tpl) {
     try {
       const img = await loadTemplateImage(tpl);
-      const overlap = session.confettiOverlap !== false;
-      if (overlap) {
-        frameImg.src = img.src;
-      } else {
-        // Punch photo holes clean so confetti does not cover the live preview
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth || baseW;
-        c.height = img.naturalHeight || baseH;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        const sx = c.width / baseW;
-        const sy = c.height / baseH;
-        for (const rect of slotRects) {
-          ctx.clearRect(
-            Math.round(rect.x * sx),
-            Math.round(rect.y * sy),
-            Math.round(rect.w * sx),
-            Math.round(rect.h * sy)
-          );
-        }
-        frameImg.src = c.toDataURL('image/png');
-      }
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || baseW;
+      c.height = img.naturalHeight || baseH;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const sx = c.width / baseW;
+      const sy = c.height / baseH;
+      const brandOverlap = Math.max(0, Number(tpl.brandOverlapPx) || 0);
+      // Clear photo holes fully; keep overlapping brand pixels (Polaroid 20) in the hole
+      slotRects.forEach((rect, i) => {
+        const isBottom =
+          i ===
+          slotRects.reduce((best, r, idx, arr) => {
+            const b = r.y + r.h;
+            const bb = arr[best].y + arr[best].h;
+            return b >= bb ? idx : best;
+          }, 0);
+        const keepBrand = isBottom && brandOverlap > 0 ? brandOverlap * sy : 0;
+        ctx.clearRect(
+          Math.round(rect.x * sx),
+          Math.round(rect.y * sy),
+          Math.round(rect.w * sx),
+          Math.max(1, Math.round(rect.h * sy - keepBrand))
+        );
+      });
+      frameImg.src = c.toDataURL('image/png');
       frameImg.alt = tpl.name || 'Strip frame preview';
       frameImg.hidden = false;
       mock.dataset.templateId = tpl.id;
@@ -597,7 +599,6 @@ function confirmBeginCapture() {
     return;
   patchSession({
     mirrorPreview: $('setup-mirror').checked,
-    confettiOverlap: $('setup-confetti-overlap')?.checked !== false,
     deviceId: !$('camera-field').hidden ? $('setup-camera').value || null : session.deviceId,
   });
   handoffSetupPreviewToCapture();
@@ -1272,7 +1273,7 @@ async function recompose() {
       lockedElements,
       stickers: userElements,
       safeBounds: session.safeBounds === true,
-      confettiOverlap: session.confettiOverlap !== false,
+      confettiOverlap: false,
     });
     const png = canvasToPngBase64(composed);
     if (session.composed) {
@@ -2253,11 +2254,6 @@ function bind() {
   });
   $('setup-mirror').addEventListener('change', (e) => {
     patchSession({ mirrorPreview: e.target.checked });
-    syncSetupPreviewVideos();
-  });
-  $('setup-confetti-overlap')?.addEventListener('change', (e) => {
-    patchSession({ confettiOverlap: e.target.checked });
-    void renderOrientationPreview(getSession().photoCount);
     syncSetupPreviewVideos();
   });
   $('setup-camera')?.addEventListener('change', async (e) => {

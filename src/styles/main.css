@@ -988,20 +988,18 @@ kbd {
 
 .setup-controls-toggles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.55rem 0.75rem;
   min-width: 0;
   align-self: stretch;
 }
 
-.setup-controls-mirror,
-.setup-controls-confetti {
+.setup-controls-mirror {
   min-width: 0;
   margin: 0;
 }
 
-.setup-settings .setup-mirror-toggle,
-.setup-settings .setup-confetti-toggle {
+.setup-settings .setup-mirror-toggle {
   width: 100%;
   margin: 0;
   min-height: 42px;

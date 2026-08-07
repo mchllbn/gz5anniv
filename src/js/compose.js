@@ -5,7 +5,7 @@
  * 1. Underfill
  * 2. Photos into slots (object-fit: cover)
  * 3. Template PNG on top (transparent holes + branding + optional confetti in holes)
- * 4. If confettiOverlap is false, photos are redrawn on top to cover hole confetti
+ * 4. Photos redrawn on top so hole confetti never overlaps shots
  */
 
 import { composeSize, scaleSlots, getConfig, getFormat } from './config.js';
@@ -241,10 +241,20 @@ export async function composeStrip(shotCanvases, opts = {}) {
   ctx.fillRect(0, 0, width, height);
 
   const n = Math.min(shotCanvases.length, slots.length);
-  for (let i = 0; i < n; i++) {
-    const slot = slots[i];
-    const src = shotCanvases[i];
-    if (!src || !slot) continue;
+  const brandOverlap = Math.max(0, Math.round((Number(template.brandOverlapPx) || 0) * scale));
+  let bottomSlotIndex = -1;
+  if (brandOverlap > 0 && slots.length) {
+    let maxBottom = -Infinity;
+    for (let i = 0; i < slots.length; i++) {
+      const b = (slots[i]?.y || 0) + (slots[i]?.h || 0);
+      if (b >= maxBottom) {
+        maxBottom = b;
+        bottomSlotIndex = i;
+      }
+    }
+  }
+
+  const drawPhotoInSlot = (slot, src) => {
     const filtered = applyFilterToCanvas(src, filterId, opts.adjustments);
     ctx.save();
     ctx.beginPath();
@@ -254,32 +264,45 @@ export async function composeStrip(shotCanvases, opts = {}) {
     ctx.restore();
     filtered.width = 0;
     filtered.height = 0;
+  };
+
+  for (let i = 0; i < n; i++) {
+    const slot = slots[i];
+    const src = shotCanvases[i];
+    if (!src || !slot) continue;
+    drawPhotoInSlot(slot, src);
   }
 
+  let templateImg = null;
   try {
-    const img = await loadTemplateImage(template);
-    if (img) ctx.drawImage(img, 0, 0, width, height);
+    templateImg = await loadTemplateImage(template);
+    if (templateImg) ctx.drawImage(templateImg, 0, 0, width, height);
   } catch (err) {
     console.warn(err);
     drawFallbackFrame(ctx, width, height, slots, scale, template);
   }
 
-  // When overlap is off, redraw photos on top so confetti in holes is covered
-  const confettiOverlap = opts.confettiOverlap !== false;
-  if (!confettiOverlap) {
-    for (let i = 0; i < n; i++) {
-      const slot = slots[i];
-      const src = shotCanvases[i];
-      if (!src || !slot) continue;
-      const filtered = applyFilterToCanvas(src, filterId, opts.adjustments);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(slot.x, slot.y, slot.w, slot.h);
-      ctx.clip();
-      drawCover(ctx, filtered, slot.x, slot.y, slot.w, slot.h);
-      ctx.restore();
-      filtered.width = 0;
-      filtered.height = 0;
+  // Photos fill the full template holes (no inset / no empty “cut” band)
+  for (let i = 0; i < n; i++) {
+    const slot = slots[i];
+    const src = shotCanvases[i];
+    if (!src || !slot) continue;
+    drawPhotoInSlot(slot, src);
+  }
+
+  // Re-lay overlapping brand (e.g. Polaroid 20 mark) on top of the photo — no navy gap
+  if (templateImg && brandOverlap > 0 && bottomSlotIndex >= 0) {
+    const slot = slots[bottomSlotIndex];
+    if (slot) {
+      const y0 = Math.max(slot.y, slot.y + slot.h - brandOverlap);
+      const bandH = slot.y + slot.h - y0;
+      if (bandH > 0) {
+        const nw = templateImg.naturalWidth || width;
+        const nh = templateImg.naturalHeight || height;
+        const sy = (y0 / height) * nh;
+        const sh = (bandH / height) * nh;
+        ctx.drawImage(templateImg, 0, sy, nw, sh, 0, y0, width, bandH);
+      }
     }
   }
 

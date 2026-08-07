@@ -12,7 +12,7 @@ const DEFAULTS = {
     filter: 'natural',
     templateId: 'anniversary-navy',
     formatId: '2x6',
-    confettiOverlap: true,
+    confettiOverlap: false,
   },
   allowedPhotoCounts: [3],
   allowedCountdowns: [3, 5, 10],

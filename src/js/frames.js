@@ -7,7 +7,7 @@ import { getConfig, resolveAssetUrl } from './config.js';
 
 const cache = new Map();
 /** Bump when template PNGs are regenerated so browsers/Electron skip stale cached frames. */
-const TEMPLATE_ASSET_VERSION = '20260806-polaroid-confetti-v2';
+const TEMPLATE_ASSET_VERSION = '20260807-borders-outside-slots-v1';
 
 export function listTemplates() {
   return getConfig().templates || [];

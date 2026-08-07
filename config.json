@@ -8,7 +8,7 @@
     "filter": "natural",
     "templateId": "anniversary-navy",
     "formatId": "2x6",
-    "confettiOverlap": true
+    "confettiOverlap": false
   },
   "allowedPhotoCounts": [
     3
@@ -97,10 +97,10 @@
   "printAdjustmentsEnabled": true,
   "printAdjustmentsPermanent": true,
   "printAdjustments": {
-    "brightness": 14,
-    "contrast": 4,
+    "brightness": 11,
+    "contrast": 5,
     "saturation": 0,
-    "exposure": 18,
+    "exposure": 14,
     "warmth": 0,
     "shadows": 6,
     "highlights": -4,
@@ -264,23 +264,24 @@
           "x": 40,
           "y": 40,
           "w": 653,
-          "h": 542
+          "h": 538
         },
         {
-          "x": 729,
+          "x": 737,
           "y": 40,
-          "w": 1031,
-          "h": 542
+          "w": 1023,
+          "h": 538
         },
         {
-          "x": 729,
-          "y": 618,
-          "w": 1031,
-          "h": 542
+          "x": 737,
+          "y": 622,
+          "w": 1023,
+          "h": 538
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-blue-4x6-3.png",
-      "_exists": true
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "polaroid-4x6",
@@ -299,7 +300,8 @@
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-4x6.png",
-      "_exists": true
+      "_exists": true,
+      "brandOverlapPx": 218
     },
     {
       "id": "anniversary-four-6x4",
@@ -311,32 +313,33 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 659,
+          "x": 671,
           "y": 48,
-          "w": 1093,
-          "h": 600
+          "w": 1081,
+          "h": 593
         },
         {
           "x": 49,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "y": 685,
+          "w": 538,
+          "h": 467
         },
         {
-          "x": 627,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "x": 631,
+          "y": 685,
+          "w": 538,
+          "h": 467
         },
         {
-          "x": 1205,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "x": 1213,
+          "y": 685,
+          "w": 538,
+          "h": 467
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-6x4.png",
-      "_exists": true
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "anniversary-gold",
@@ -382,23 +385,24 @@
           "x": 40,
           "y": 40,
           "w": 653,
-          "h": 542
+          "h": 538
         },
         {
-          "x": 729,
+          "x": 737,
           "y": 40,
-          "w": 1031,
-          "h": 542
+          "w": 1023,
+          "h": 538
         },
         {
-          "x": 729,
-          "y": 618,
-          "w": 1031,
-          "h": 542
+          "x": 737,
+          "y": 622,
+          "w": 1023,
+          "h": 538
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-gold-4x6-3.png",
-      "_exists": true
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "polaroid-gold-4x6",
@@ -417,7 +421,8 @@
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-gold-4x6.png",
-      "_exists": true
+      "_exists": true,
+      "brandOverlapPx": 218
     },
     {
       "id": "anniversary-four-gold-6x4",
@@ -429,32 +434,33 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 659,
+          "x": 671,
           "y": 48,
-          "w": 1093,
-          "h": 600
+          "w": 1081,
+          "h": 593
         },
         {
           "x": 49,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "y": 685,
+          "w": 538,
+          "h": 467
         },
         {
-          "x": 627,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "x": 631,
+          "y": 685,
+          "w": 538,
+          "h": 467
         },
         {
-          "x": 1205,
-          "y": 680,
-          "w": 546,
-          "h": 472
+          "x": 1213,
+          "y": 685,
+          "w": 538,
+          "h": 467
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-gold-6x4.png",
-      "_exists": true
+      "_exists": true,
+      "softSlotFrames": true
     }
   ]
 }
