@@ -29,7 +29,65 @@ export function usesRemoteCapture(cfg) {
   return usesTetherCapture(cfg);
 }
 
+let gphotoPreviewTimer = null;
+let gphotoPreviewInFlight = false;
+
+export async function resolvePreferredVideoDeviceId(cfg) {
+  const want = String(cfg?.camera?.preferredDeviceLabel || '').trim().toLowerCase();
+  const cams = await listCameras();
+  if (want) {
+    const hit = cams.find((d) => d.label && d.label.toLowerCase().includes(want));
+    if (hit?.deviceId) return hit.deviceId;
+  }
+  return cams[0]?.deviceId;
+}
+
+export function showGphotoPreviewImage(imgEl, canvasOrDataUrl, mirror = true) {
+  if (!imgEl || !canvasOrDataUrl) return;
+  const url =
+    typeof canvasOrDataUrl === 'string'
+      ? canvasOrDataUrl
+      : canvasOrDataUrl.toDataURL?.('image/jpeg', 0.92);
+  if (!url) return;
+  imgEl.src = url;
+  imgEl.hidden = false;
+  imgEl.classList.toggle('mirrored', !!mirror);
+}
+
+export function stopGphotoPreviewPoll() {
+  if (gphotoPreviewTimer) {
+    clearInterval(gphotoPreviewTimer);
+    gphotoPreviewTimer = null;
+  }
+}
+
+export async function startGphotoPreviewPoll(imgEl, cfg, mirror = true) {
+  stopGphotoPreviewPoll();
+  if (!imgEl || !window.photobooth?.fetchGphotoPreview) return false;
+  const ms = Math.max(1500, Number(cfg?.camera?.previewIntervalMs) || 2500);
+  const tick = async () => {
+    if (gphotoPreviewInFlight) return;
+    gphotoPreviewInFlight = true;
+    try {
+      const r = await window.photobooth.fetchGphotoPreview();
+      if (r?.ok && r.dataUrl) {
+        imgEl.src = r.dataUrl;
+        imgEl.hidden = false;
+        imgEl.classList.toggle('mirrored', !!mirror);
+      }
+    } catch {
+      /* skip frame */
+    } finally {
+      gphotoPreviewInFlight = false;
+    }
+  };
+  await tick();
+  gphotoPreviewTimer = setInterval(tick, ms);
+  return true;
+}
+
 function stopLiveViewPoll() {
+  stopGphotoPreviewPoll();
   if (liveViewTimer) {
     clearInterval(liveViewTimer);
     liveViewTimer = null;
@@ -46,6 +104,43 @@ function setPreviewVisible({ videoEl, imgEl, mode }) {
 export async function startSessionPreview({ videoEl, imgEl, cfg, deviceId, mirror = true } = {}) {
   stopLiveViewPoll();
   const cam = cfg?.camera || {};
+  const useGphotoPv =
+    cam.backend === 'gphoto2' &&
+    cam.previewSource === 'gphoto2' &&
+    imgEl &&
+    window.photobooth?.fetchGphotoPreview;
+
+  if (useGphotoPv) {
+    const allowHdmi = cam.previewFallbackCaptureCard !== false;
+    let gphotoOk = false;
+    try {
+      const r = await window.photobooth.fetchGphotoPreview();
+      gphotoOk = !!(r?.ok && r.dataUrl);
+      if (gphotoOk) {
+        imgEl.src = r.dataUrl;
+        await stopCamera(videoEl, { stopTracks: false });
+        setPreviewVisible({ videoEl, imgEl, mode: 'liveview' });
+        await startGphotoPreviewPoll(imgEl, cfg, mirror);
+        return 'gphoto-preview';
+      }
+    } catch {
+      /* USB preview not supported or busy */
+    }
+    if (allowHdmi && videoEl) {
+      try {
+        const devId = deviceId || (await resolvePreferredVideoDeviceId(cfg));
+        setPreviewVisible({ videoEl, imgEl, mode: 'video' });
+        await startCamera(videoEl, { deviceId: devId, mirror, cfg });
+        return 'gphoto-hdmi-preview';
+      } catch (err) {
+        console.warn('HDMI live view fallback failed', err);
+      }
+    }
+    await stopCamera(videoEl, { stopTracks: true });
+    setPreviewVisible({ videoEl, imgEl, mode: 'liveview' });
+    return 'gphoto-preview-idle';
+  }
+
   const useDccLv =
     cam.previewSource === 'digicamcontrol' &&
     cam.backend === 'digicamcontrol' &&

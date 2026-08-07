@@ -10,6 +10,16 @@ const {
   clearAlbum,
 } = require('./album-store');
 const { captureStill, probeCameraBackend, normalizeCameraConfig, startDigiCamLiveView, stopDigiCamLiveView } = require('./camera-capture');
+const { fetchGphotoPreview } = require('./gphoto-capture');
+
+/** Serialize all WSL gphoto2 calls (preview + shutter) — Fuji USB allows one client. */
+let gphotoChain = Promise.resolve();
+
+function runGphotoExclusive(task) {
+  const next = gphotoChain.then(() => task());
+  gphotoChain = next.catch(() => {});
+  return next;
+}
 
 // Keep Chromium UI / media prompts in English (does not change Windows OS language)
 app.commandLine.appendSwitch('lang', 'en-US');
@@ -314,20 +324,35 @@ function registerIpc() {
   ipcMain.handle('camera:capture', async () => {
     const { config } = readConfig();
     const camera = normalizeCameraConfig(config.camera || {});
-    try {
-      const result = await captureStill(camera, {
-        appUserData: app.getPath('userData'),
-        log: appendLog,
-      });
-      return result;
-    } catch (err) {
-      appendLog(`Camera capture FAIL: ${err.message}`);
-      return {
-        ok: false,
-        error: err.message || String(err),
-        fallbackToWebcam: camera.fallbackToWebcam,
-      };
-    }
+    return runGphotoExclusive(async () => {
+      try {
+        const result = await captureStill(camera, {
+          appUserData: app.getPath('userData'),
+          log: appendLog,
+        });
+        return result;
+      } catch (err) {
+        appendLog(`Camera capture FAIL: ${err.message}`);
+        return {
+          ok: false,
+          error: err.message || String(err),
+          fallbackToWebcam: camera.fallbackToWebcam,
+        };
+      }
+    });
+  });
+
+  ipcMain.handle('camera:gphoto-preview', async () => {
+    const { config } = readConfig();
+    const camera = normalizeCameraConfig(config.camera || {});
+    if (camera.backend !== 'gphoto2') return { ok: false, reason: 'not-gphoto2' };
+    return runGphotoExclusive(async () => {
+      try {
+        return await fetchGphotoPreview(camera, appendLog);
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    });
   });
 
   ipcMain.handle('camera:liveview-start', async () => {

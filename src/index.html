@@ -161,6 +161,7 @@
         <div class="capture-stage" id="capture-stage">
           <div class="capture-frame" id="capture-frame" aria-hidden="true">
             <video id="video" playsinline autoplay muted></video>
+            <img id="video-liveview" class="liveview-preview" hidden alt="" />
           </div>
         </div>
         <div id="countdown" class="countdown" hidden></div>
@@ -323,7 +324,7 @@
         <select id="set-camera-backend">
           <option value="capture-card">HDMI only — frame from USB Video (no RAW)</option>
           <option value="dual">HDMI preview + USB shutter — RAW/JPEG via gPhoto2 (best)</option>
-          <option value="gphoto2">USB shutter only — gPhoto2 (no HDMI preview in app)</option>
+          <option value="gphoto2">Fujifilm USB tether only — preview + shutter (X-T2)</option>
           <option value="digicamcontrol">digiCamControl — Nikon/Canon/Sony Wi‑Fi</option>
           <option value="webcam">Webcam / other USB camera</option>
         </select>
@@ -336,7 +337,7 @@
         </select>
       </label>
       <p id="camera-probe" class="meta"></p>
-      <p class="meta"><strong>HDMI booth (X-T2):</strong> Camera micro HDMI → capture card → PC shows as <strong>USB Video</strong>. In setup, pick that device. Settings → backend <strong>HDMI capture card</strong>. Turn off “Camera shutter capture” unless you also add USB tether. Fuji HDMI is usually a clean image (no menus).</p>
+      <p class="meta"><strong>X-T2 USB tether only:</strong> No HDMI needed. Run <code>scripts/attach-xt2-admin.ps1</code> as Admin once per boot. Settings → <strong>Fujifilm USB tether only</strong>. Close X Acquire while the booth runs.</p>
       <div class="row-actions">
         <button type="button" id="btn-test-print" class="btn btn-secondary">Test print</button>
         <button type="button" id="btn-settings-save" class="btn btn-primary">Save</button>

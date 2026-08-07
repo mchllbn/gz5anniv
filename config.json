@@ -1,5 +1,5 @@
 {
-  "printerName": "REPLACE_WITH_WINDOWS_PRINTER_NAME",
+  "printerName": "",
   "copies": 1,
   "defaults": {
     "photoCount": 3,
@@ -89,7 +89,7 @@
   "underfillColor": "#e8e8ec",
   "templateMode": "overlay",
   "debugSlots": false,
-  "pauseBetweenShotsMs": 700,
+  "pauseBetweenShotsMs": 1500,
   "saveLocalCopy": true,
   "silentPrint": false,
   "outputDir": "output",
@@ -99,23 +99,26 @@
   "printAdjustments": {
     "brightness": 11,
     "contrast": 5,
+    "clarity": 12,
     "saturation": 0,
     "exposure": 14,
     "warmth": 0,
     "shadows": 6,
-    "highlights": -4,
-    "clarity": 12
+    "highlights": -4
   },
   "camera": {
-    "backend": "capture-card",
+    "backend": "gphoto2",
     "preferredDeviceLabel": "USB Video",
     "captureWidth": 1920,
     "captureHeight": 1080,
     "mode": "cmd",
-    "previewSource": "webcam",
+    "previewSource": "gphoto2",
+    "previewIntervalMs": 2500,
+    "previewFallbackCaptureCard": true,
     "cropBlackBars": true,
     "gphotoPath": "",
     "useWslGphoto": true,
+    "wslDistro": "Ubuntu-24.04",
     "cmdPath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlCmd.exe",
     "remoteCmdPath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlRemoteCmd.exe",
     "webPort": 5513,
@@ -123,6 +126,8 @@
     "archiveFolder": "",
     "timeoutMs": 45000,
     "settleMs": 400,
+    "gphotoCaptureRetries": 2,
+    "gphotoRetryDelayMs": 2500,
     "preferJpeg": true,
     "archiveRaw": true,
     "capturenoaf": false,
@@ -167,7 +172,7 @@
           "h": 411
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-blue-3.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\strip-blue-3.png",
       "_exists": true
     },
     {
@@ -186,7 +191,7 @@
           "h": 1120
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-1.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\strip-1.png",
       "_exists": true
     },
     {
@@ -211,7 +216,7 @@
           "h": 560
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-2.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\strip-2.png",
       "_exists": true
     },
     {
@@ -248,7 +253,7 @@
           "h": 560
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-4.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\strip-4.png",
       "_exists": true
     },
     {
@@ -279,7 +284,7 @@
           "h": 544
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-blue-4x6-3.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\sheet-blue-4x6-3.png",
       "_exists": true,
       "softSlotFrames": true
     },
@@ -299,7 +304,7 @@
           "h": 1316
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-4x6.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\polaroid-4x6.png",
       "_exists": true,
       "brandOverlapPx": 218
     },
@@ -337,7 +342,7 @@
           "h": 476
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-6x4.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\sheet-four-6x4.png",
       "_exists": true,
       "softSlotFrames": true
     },
@@ -369,7 +374,7 @@
           "h": 411
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-gold-3.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\strip-gold-3.png",
       "_exists": true
     },
     {
@@ -400,7 +405,7 @@
           "h": 544
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-gold-4x6-3.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\sheet-gold-4x6-3.png",
       "_exists": true,
       "softSlotFrames": true
     },
@@ -420,7 +425,7 @@
           "h": 1316
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-gold-4x6.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\polaroid-gold-4x6.png",
       "_exists": true,
       "brandOverlapPx": 218
     },
@@ -458,7 +463,7 @@
           "h": 476
         }
       ],
-      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-gold-6x4.png",
+      "_absPath": "C:\\docker-projects\\gz5anniv\\assets\\templates\\sheet-four-gold-6x4.png",
       "_exists": true,
       "softSlotFrames": true
     }

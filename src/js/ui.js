@@ -34,6 +34,10 @@ import {
   usesTetherCapture,
   startSessionPreview,
   stopSessionPreview,
+  startGphotoPreviewPoll,
+  stopGphotoPreviewPoll,
+  showGphotoPreviewImage,
+  resolvePreferredVideoDeviceId,
   refreshHdmiCrop,
   syncHdmiPreviewToVideos,
 } from './camera.js';
@@ -544,11 +548,19 @@ async function startSetupPreview() {
   }
 }
 
+function usesGphotoTetherOnly(cfg) {
+  return cfg.camera?.backend === 'gphoto2' && cfg.camera?.previewSource === 'gphoto2';
+}
+
 function updateCaptureSourceHint() {
   const el = $('capture-source-hint');
   if (!el) return;
   const cfg = getConfig();
-  if (usesTetherCapture(cfg)) {
+  if (usesGphotoTetherOnly(cfg)) {
+    el.textContent =
+      'USB shutter (gPhoto2). Live view = HDMI capture card if connected; otherwise preview updates after each shot. Close X Acquire while the booth runs.';
+    el.hidden = false;
+  } else if (usesTetherCapture(cfg)) {
     const dual = cfg.camera?.previewSource === 'capture-card';
     const b = cfg.camera?.backend === 'gphoto2' ? 'gPhoto2' : 'digiCamControl';
     el.textContent = dual
@@ -573,7 +585,29 @@ async function stopSetupPreviewCompletely() {
 function handoffSetupPreviewToCapture() {
   detachSetupPreviewVideos();
   const session = getSession();
+  const cfg = getConfig();
   const captureVideo = $('video');
+  const captureLv = $('video-liveview');
+  if (usesGphotoTetherOnly(cfg)) {
+    stopGphotoPreviewPoll();
+    const live = getStream();
+    if (live?.active && captureVideo) {
+      captureVideo.hidden = false;
+      if (captureLv) captureLv.hidden = true;
+      captureVideo.classList.toggle('mirrored', session.mirrorPreview !== false);
+      captureVideo.srcObject = live;
+      return;
+    }
+    if (captureLv) {
+      captureVideo.hidden = true;
+      captureLv.hidden = false;
+      const setupImg = $('setup-preview-liveview');
+      if (setupImg?.src && !setupImg.hidden) captureLv.src = setupImg.src;
+    }
+    return;
+  }
+  captureVideo.hidden = false;
+  if (captureLv) captureLv.hidden = true;
   captureVideo.classList.toggle('mirrored', session.mirrorPreview !== false);
   captureVideo.srcObject = getStream();
 }
@@ -587,7 +621,7 @@ function backendToUi(cfg) {
 function uiToBackend(uiValue) {
   if (uiValue === 'dual') return { backend: 'gphoto2', previewSource: 'capture-card' };
   if (uiValue === 'capture-card') return { backend: 'capture-card', previewSource: 'capture-card' };
-  if (uiValue === 'gphoto2') return { backend: 'gphoto2', previewSource: 'webcam' };
+  if (uiValue === 'gphoto2') return { backend: 'gphoto2', previewSource: 'gphoto2' };
   return { backend: uiValue || 'capture-card', previewSource: 'webcam' };
 }
 
@@ -607,7 +641,7 @@ async function populateCameras() {
       const match = cams.find((c) => (c.label || '').toLowerCase().includes(prefer));
       if (match) patchSession({ deviceId: match.deviceId });
     }
-    const showPicker = cams.length > 1 || usesHdmiPreview(cfg);
+    const showPicker = !usesGphotoTetherOnly(cfg) && (cams.length > 1 || usesHdmiPreview(cfg));
     if (!showPicker || !cams.length) {
       field.hidden = true;
       return;
@@ -672,19 +706,35 @@ async function startCapture() {
 
   const video = $('video');
   try {
+    if (usesGphotoTetherOnly(cfg)) {
+    stopGphotoPreviewPoll();
+    const lv = $('video-liveview');
     const live = getStream();
     if (live?.active) {
+      video.hidden = false;
+      if (lv) lv.hidden = true;
       await attachActiveStream(video, { mirror: session.mirrorPreview !== false });
       refreshHdmiCrop(video, cfg.camera || {});
       syncHdmiPreviewToVideos([video], { mirror: session.mirrorPreview !== false });
-    } else {
-      await startCamera(video, {
-        deviceId: session.deviceId || undefined,
-        mirror: session.mirrorPreview !== false,
-        cfg: getConfig(),
-      });
-      await waitForVideo(video);
-      refreshHdmiCrop(video, cfg.camera || {});
+    } else if (lv) {
+      video.hidden = true;
+      lv.hidden = false;
+    }
+  } else {
+      const live = getStream();
+      if (live?.active) {
+        await attachActiveStream(video, { mirror: session.mirrorPreview !== false });
+        refreshHdmiCrop(video, cfg.camera || {});
+        syncHdmiPreviewToVideos([video], { mirror: session.mirrorPreview !== false });
+      } else {
+        await startCamera(video, {
+          deviceId: session.deviceId || undefined,
+          mirror: session.mirrorPreview !== false,
+          cfg: getConfig(),
+        });
+        await waitForVideo(video);
+        refreshHdmiCrop(video, cfg.camera || {});
+      }
     }
     await populateCameras();
 
@@ -712,7 +762,11 @@ async function startCapture() {
         setText($('shot-label'), `Photo ${i + 1} of ${n}`);
         updateCaptureProgress(shotsSoFar.length, n, shotsSoFar);
       },
-      onShotCaptured: (_index, _canvas, n, allShots) => {
+      onShotCaptured: (index, canvas, n, allShots) => {
+        if (usesGphotoTetherOnly(cfg)) {
+          const lv = $('video-liveview');
+          showGphotoPreviewImage(lv, canvas, session.mirrorPreview !== false);
+        }
         const done = allShots.length;
         if (done < n) {
           syncCaptureFrameAspect(done);
@@ -2372,16 +2426,20 @@ async function refreshCameraProbe() {
     }
     if (probe.backend === 'gphoto2') {
       const g = probe.gphoto || {};
+      const w = g.windowsUsb || {};
+      const dual = probe.previewSource === 'capture-card';
+      const tetherOnly = probe.previewSource === 'gphoto2';
       let line = [
+        tetherOnly ? 'USB tether only' : dual ? 'Dual: HDMI preview + USB shutter' : 'USB shutter',
         g.gphotoPath ? `gPhoto2: ${g.gphotoPath}` : 'gPhoto2',
-        g.cameraDetected ? 'X-T2/USB detected' : 'No camera in WSL — run usbipd attach',
-        probe.ready ? 'Shutter capture ready' : 'Not ready',
-        `saves: ${probe.watchFolder}`,
+        g.cameraDetected ? 'WSL: camera OK' : 'WSL: attach USB (Admin)',
+        w.found ? `Windows USB: X-T2 ${w.busid}` : 'Windows USB: X-T2 not listed',
+        probe.ready ? 'Ready' : 'Not ready',
       ].join(' · ');
-      if (g.usbipdRequired && g.usbipdSteps) {
-        line += ` — ${g.usbipdSteps}`;
-      } else if (!probe.ready && probe.hints?.[0]) {
-        line += ` — ${probe.hints[0].slice(0, 100)}…`;
+      if (!g.cameraDetected && w.found && w.attachCommands) {
+        line += ` — Run scripts/attach-xt2-admin.ps1 as Admin`;
+      } else if (g.usbipdRequired && g.usbipdSteps) {
+        line += ` — ${g.usbipdSteps.slice(0, 120)}…`;
       }
       el.textContent = line;
       return;

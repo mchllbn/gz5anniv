@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('photobooth', {
   log: (message) => ipcRenderer.invoke('log:write', message),
   probeCamera: () => ipcRenderer.invoke('camera:probe'),
   captureStill: () => ipcRenderer.invoke('camera:capture'),
+  fetchGphotoPreview: () => ipcRenderer.invoke('camera:gphoto-preview'),
   startLiveView: () => ipcRenderer.invoke('camera:liveview-start'),
   stopLiveView: () => ipcRenderer.invoke('camera:liveview-stop'),
   albumList: () => ipcRenderer.invoke('album:list'),

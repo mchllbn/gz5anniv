@@ -44,7 +44,9 @@ function normalizeCameraConfig(camera = {}) {
       ? 'digicamcontrol'
       : camera.previewSource === 'capture-card'
         ? 'capture-card'
-        : 'webcam';
+        : camera.previewSource === 'gphoto2'
+          ? 'gphoto2'
+          : 'webcam';
   return {
     backend,
     mode,
@@ -53,6 +55,8 @@ function normalizeCameraConfig(camera = {}) {
     remoteCmdPath: camera.remoteCmdPath || '',
     gphotoPath: camera.gphotoPath || '',
     useWslGphoto: camera.useWslGphoto !== false,
+    wslDistro: camera.wslDistro || '',
+    previewFallbackCaptureCard: camera.previewFallbackCaptureCard !== false,
     webPort: Math.max(1, Number(camera.webPort) || 5513),
     watchFolder: camera.watchFolder || '',
     archiveFolder: camera.archiveFolder || '',
@@ -375,6 +379,11 @@ async function captureStill(cameraConfig, { appUserData, log = () => {} } = {}) 
     };
     await waitForStableFile(chosen.abs, Math.max(5000, cfg.timeoutMs / 2), cfg.settleMs);
     const buf = fs.readFileSync(chosen.abs);
+    if (buf.length < 3 || buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) {
+      throw new Error(
+        `Downloaded file is not a JPEG (${chosen.name}). Set X-T2 IMAGE QUALITY to RAW+JPEG or JPEG Fine.`
+      );
+    }
     const dataUrl = `data:${mimeForExt(chosen.ext)};base64,${buf.toString('base64')}`;
     log(`gphoto2 capture OK ${chosen.abs}`);
     return {
