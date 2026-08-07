@@ -45,15 +45,15 @@ const DEFAULTS = {
   /** capture-card = HDMI → USB video grab; gphoto2/digicamcontrol = USB shutter */
   camera: {
     backend: 'gphoto2',
-    preferredDeviceLabel: 'USB Video',
+    preferredDeviceLabel: 'C922',
     captureWidth: 1920,
     captureHeight: 1080,
     mode: 'remote',
-    previewSource: 'gphoto2',
+    previewSource: 'capture-card',
     previewIntervalMs: 2500,
     previewFallbackCaptureCard: true,
     /** Auto-crop black letterbox/pillarbox from Fuji HDMI (and similar). */
-    cropBlackBars: true,
+    cropBlackBars: false,
     gphotoPath: '',
     useWslGphoto: true,
     cmdPath: '',

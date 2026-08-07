@@ -16,8 +16,8 @@ const { execFile } = require('child_process');
 const execFileAsync = promisify(execFile);
 
 const USBIPD_STEPS =
-  'WSL cannot see the camera USB yet. Use: & "C:/Program Files/usbipd-win/usbipd.exe" list, then bind --busid and attach --wsl. ' +
-  'Restart PowerShell after install if usbipd is not recognized. See scripts/fuji-usb-wsl.ps1';
+  'WSL cannot see the Fujifilm USB yet. As Administrator: cd to the project and run scripts/attach-xt2-admin.ps1 (usbipd bind + attach). ' +
+  'The C922 webcam stays on Windows for live preview — only attach the X-T2 USB cable to WSL. Then: wsl gphoto2 --auto-detect';
 
 const FUJI_HINT =
   'Fujifilm X-T2: SET UP → CONNECTION SETTING → PC CONNECTION MODE → USB TETHER SHOOTING AUTO. ' +
@@ -317,8 +317,9 @@ async function captureViaGphoto(cfg, destFile, log) {
 
   const pre = await probeGphoto(cfg);
   if (!pre.cameraDetected) {
-    const msg =
-      pre.usbipdSteps ||
+    const msg = !pre.windowsUsb?.found
+      ? 'Fujifilm X-T2 not on USB. Plug the X-T2 USB cable (C922 is separate — it stays on Windows for preview). Camera: USB TETHER SHOOTING AUTO. Then Admin PowerShell: .\\scripts\\attach-xt2-admin.ps1'
+      : pre.usbipdSteps ||
       (pre.windowsUsb?.found
         ? `X-T2 on USB (${pre.windowsUsb.busid}) but not in WSL. ${pre.windowsUsb.attachCommands}`
         : pre.detail || FUJI_HINT);
