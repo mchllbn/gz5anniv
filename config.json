@@ -1,23 +1,14 @@
 {
   "printerName": "REPLACE_WITH_WINDOWS_PRINTER_NAME",
   "copies": 1,
-  "event": {
-    "title": "20th Anniversary",
-    "subtitle": "2006 ✦ 2026",
-    "organization": "Golden Z-5 Security & Investigation Agency, Inc.",
-    "tagline": "Golden Z-5 — 20th Anniversary Photobooth",
-    "agencyLogo": "assets/templates/gz5-logo.png",
-    "anniversaryLogo": "assets/templates/logo.png",
-    "logo": "assets/templates/gz5-logo.png"
-  },
   "defaults": {
     "photoCount": 3,
     "countdownSeconds": 3,
     "mirrorPreview": false,
-    "confettiOverlap": true,
     "filter": "natural",
     "templateId": "anniversary-navy",
-    "formatId": "2x6"
+    "formatId": "2x6",
+    "confettiOverlap": false
   },
   "allowedPhotoCounts": [
     3
@@ -27,7 +18,28 @@
     5,
     10
   ],
+  "canvas": {
+    "width": 600,
+    "height": 1800,
+    "dpi": 300,
+    "scale": 2
+  },
   "formats": [
+    {
+      "id": "4x6-polaroid",
+      "label": "4×6 Polaroid",
+      "physicalSizeInches": {
+        "width": 4,
+        "height": 6
+      },
+      "canvasPx": {
+        "width": 1200,
+        "height": 1800
+      },
+      "allowedPhotoCounts": [
+        1
+      ]
+    },
     {
       "id": "2x6",
       "label": "2x6 Strip",
@@ -59,21 +71,6 @@
       ]
     },
     {
-      "id": "4x6-polaroid",
-      "label": "4×6 Polaroid",
-      "physicalSizeInches": {
-        "width": 4,
-        "height": 6
-      },
-      "canvasPx": {
-        "width": 1200,
-        "height": 1800
-      },
-      "allowedPhotoCounts": [
-        1
-      ]
-    },
-    {
       "id": "6x4-four",
       "label": "6×4 Four",
       "physicalSizeInches": {
@@ -89,19 +86,26 @@
       ]
     }
   ],
-  "canvas": {
-    "width": 600,
-    "height": 1800,
-    "dpi": 300,
-    "scale": 2
-  },
   "underfillColor": "#e8e8ec",
   "templateMode": "overlay",
   "debugSlots": false,
   "pauseBetweenShotsMs": 700,
   "saveLocalCopy": true,
+  "silentPrint": false,
   "outputDir": "output",
   "showTimestamp": false,
+  "printAdjustmentsEnabled": true,
+  "printAdjustmentsPermanent": true,
+  "printAdjustments": {
+    "brightness": 11,
+    "contrast": 5,
+    "saturation": 0,
+    "exposure": 14,
+    "warmth": 0,
+    "shadows": 6,
+    "highlights": -4,
+    "clarity": 12
+  },
   "camera": {
     "backend": "capture-card",
     "preferredDeviceLabel": "USB Video",
@@ -109,6 +113,7 @@
     "captureHeight": 1080,
     "mode": "cmd",
     "previewSource": "webcam",
+    "cropBlackBars": true,
     "gphotoPath": "",
     "useWslGphoto": true,
     "cmdPath": "C:\\Program Files (x86)\\digiCamControl\\CameraControlCmd.exe",
@@ -124,6 +129,15 @@
     "mirrorCapture": false,
     "fallbackToWebcam": false
   },
+  "event": {
+    "title": "20th Anniversary",
+    "subtitle": "2006 ✦ 2026",
+    "organization": "Golden Z-5 Security & Investigation Agency, Inc.",
+    "tagline": "Golden Z-5 — 20th Anniversary Photobooth",
+    "agencyLogo": "assets/templates/gz5-logo.png",
+    "anniversaryLogo": "assets/templates/logo.png",
+    "logo": "assets/templates/gz5-logo.png"
+  },
   "templates": [
     {
       "id": "anniversary-navy",
@@ -135,24 +149,26 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 34,
-          "y": 30,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 26,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 446,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 449,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 862,
-          "w": 532,
-          "h": 390
+          "x": 28,
+          "y": 872,
+          "w": 544,
+          "h": 411
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-blue-3.png",
+      "_exists": true
     },
     {
       "id": "years-20-single",
@@ -169,7 +185,9 @@
           "w": 540,
           "h": 1120
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-1.png",
+      "_exists": true
     },
     {
       "id": "years-20-double",
@@ -192,7 +210,9 @@
           "w": 540,
           "h": 560
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-2.png",
+      "_exists": true
     },
     {
       "id": "years-20-quad",
@@ -227,7 +247,9 @@
           "w": 264,
           "h": 560
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-4.png",
+      "_exists": true
     },
     {
       "id": "anniversary-navy-4x6",
@@ -239,24 +261,27 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 40,
-          "y": 40,
-          "w": 653,
-          "h": 542
+          "x": 36,
+          "y": 36,
+          "w": 656,
+          "h": 544
         },
         {
-          "x": 729,
-          "y": 40,
-          "w": 1031,
-          "h": 542
+          "x": 732,
+          "y": 36,
+          "w": 1032,
+          "h": 544
         },
         {
-          "x": 729,
-          "y": 618,
-          "w": 1031,
-          "h": 542
+          "x": 732,
+          "y": 620,
+          "w": 1032,
+          "h": 544
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-blue-4x6-3.png",
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "polaroid-4x6",
@@ -273,7 +298,10 @@
           "w": 1072,
           "h": 1316
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-4x6.png",
+      "_exists": true,
+      "brandOverlapPx": 218
     },
     {
       "id": "anniversary-four-6x4",
@@ -285,30 +313,33 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 659,
-          "y": 48,
-          "w": 1093,
-          "h": 600
+          "x": 664,
+          "y": 40,
+          "w": 1096,
+          "h": 604
         },
         {
-          "x": 49,
-          "y": 680,
+          "x": 41,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         },
         {
           "x": 627,
-          "y": 680,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         },
         {
-          "x": 1205,
-          "y": 680,
+          "x": 1213,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-6x4.png",
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "anniversary-gold",
@@ -320,24 +351,26 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 34,
-          "y": 30,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 26,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 446,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 449,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 862,
-          "w": 532,
-          "h": 390
+          "x": 28,
+          "y": 872,
+          "w": 544,
+          "h": 411
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-gold-3.png",
+      "_exists": true
     },
     {
       "id": "anniversary-gold-4x6",
@@ -349,24 +382,27 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 40,
-          "y": 40,
-          "w": 653,
-          "h": 542
+          "x": 36,
+          "y": 36,
+          "w": 656,
+          "h": 544
         },
         {
-          "x": 729,
-          "y": 40,
-          "w": 1031,
-          "h": 542
+          "x": 732,
+          "y": 36,
+          "w": 1032,
+          "h": 544
         },
         {
-          "x": 729,
-          "y": 618,
-          "w": 1031,
-          "h": 542
+          "x": 732,
+          "y": 620,
+          "w": 1032,
+          "h": 544
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-gold-4x6-3.png",
+      "_exists": true,
+      "softSlotFrames": true
     },
     {
       "id": "polaroid-gold-4x6",
@@ -383,7 +419,10 @@
           "w": 1072,
           "h": 1316
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\polaroid-gold-4x6.png",
+      "_exists": true,
+      "brandOverlapPx": 218
     },
     {
       "id": "anniversary-four-gold-6x4",
@@ -395,30 +434,33 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 659,
-          "y": 48,
-          "w": 1093,
-          "h": 600
+          "x": 664,
+          "y": 40,
+          "w": 1096,
+          "h": 604
         },
         {
-          "x": 49,
-          "y": 680,
+          "x": 41,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         },
         {
           "x": 627,
-          "y": 680,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         },
         {
-          "x": 1205,
-          "y": 680,
+          "x": 1213,
+          "y": 684,
           "w": 546,
-          "h": 472
+          "h": 476
         }
-      ]
+      ],
+      "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-gold-6x4.png",
+      "_exists": true,
+      "softSlotFrames": true
     }
   ]
 }

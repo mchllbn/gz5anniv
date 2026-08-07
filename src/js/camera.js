@@ -1,13 +1,21 @@
 /**
  * Camera — simple getUserMedia with reliable ready wait.
+ * HDMI capture cards (Fuji etc.) often deliver letterboxed/pillarboxed frames;
+ * we auto-crop black bars for preview + stills.
  */
 
 let stream = null;
 let liveViewTimer = null;
 let liveViewBaseUrl = null;
+let hdmiCrop = null; // { x, y, w, h, srcW, srcH } in video pixels
+let hdmiCropTimer = null;
 
 export function getStream() {
   return stream;
+}
+
+export function getHdmiCrop() {
+  return hdmiCrop;
 }
 
 /** Shutter capture from camera (gPhoto2 / digiCamControl), not the preview video. */
@@ -94,14 +102,27 @@ export async function startCamera(videoEl, { deviceId, mirror = true, cfg = null
   const cam = cfg?.camera || {};
   const w = Math.max(640, Number(cam.captureWidth) || 1920);
   const h = Math.max(480, Number(cam.captureHeight) || 1080);
-  const hdVideo = { width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30, max: 60 } };
+  const hdVideo = {
+    width: { ideal: w, min: 640 },
+    height: { ideal: h, min: 480 },
+    frameRate: { ideal: 30, max: 60 },
+  };
 
   const tries = [];
   if (deviceId) {
     tries.push({ audio: false, video: { deviceId: { exact: deviceId }, ...hdVideo } });
+    tries.push({
+      audio: false,
+      video: {
+        deviceId: { exact: deviceId },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+    });
     tries.push({ audio: false, video: { deviceId: { ideal: deviceId }, ...hdVideo } });
     tries.push({ audio: false, video: { deviceId: { ideal: deviceId } } });
   }
+  tries.push({ audio: false, video: { ...hdVideo } });
   tries.push({ audio: false, video: { facingMode: 'user' } });
   tries.push({ audio: false, video: true });
 
@@ -117,6 +138,8 @@ export async function startCamera(videoEl, { deviceId, mirror = true, cfg = null
   }
   if (!stream) throw lastErr || new Error('Could not open camera');
 
+  await bumpCaptureTrackQuality(stream, cam);
+
   videoEl.srcObject = stream;
   videoEl.muted = true;
   videoEl.playsInline = true;
@@ -129,7 +152,183 @@ export async function startCamera(videoEl, { deviceId, mirror = true, cfg = null
   }
 
   await waitForVideo(videoEl);
+  refreshHdmiCrop(videoEl, cam);
+  startHdmiCropWatch(videoEl, cam);
   return stream;
+}
+
+/** Ask the capture card for the highest practical resolution. */
+async function bumpCaptureTrackQuality(mediaStream, cam = {}) {
+  const track = mediaStream?.getVideoTracks?.()?.[0];
+  if (!track?.applyConstraints) return;
+  const idealW = Math.max(1280, Number(cam.captureWidth) || 1920);
+  const idealH = Math.max(720, Number(cam.captureHeight) || 1080);
+  try {
+    const caps = track.getCapabilities?.() || {};
+    const maxW = caps.width?.max || idealW;
+    const maxH = caps.height?.max || idealH;
+    await track.applyConstraints({
+      width: { ideal: Math.min(idealW, maxW), max: maxW },
+      height: { ideal: Math.min(idealH, maxH), max: maxH },
+      frameRate: { ideal: 30, max: 60 },
+    });
+  } catch {
+    try {
+      await track.applyConstraints({
+        width: { ideal: idealW },
+        height: { ideal: idealH },
+      });
+    } catch {
+      /* keep negotiated size */
+    }
+  }
+}
+
+/**
+ * Detect non-black content box (Fuji HDMI often has side/top black bars).
+ * Returns null if the frame is almost full content.
+ */
+export function detectContentBounds(source, { threshold = 28, sampleStep = 4 } = {}) {
+  const w = source.videoWidth || source.width || 0;
+  const h = source.videoHeight || source.height || 0;
+  if (w < 32 || h < 32) return null;
+
+  const probe = document.createElement('canvas');
+  const maxEdge = 480;
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  probe.width = Math.max(32, Math.round(w * scale));
+  probe.height = Math.max(32, Math.round(h * scale));
+  const pctx = probe.getContext('2d', { willReadFrequently: true });
+  pctx.drawImage(source, 0, 0, probe.width, probe.height);
+  const { data } = pctx.getImageData(0, 0, probe.width, probe.height);
+
+  const isDark = (x, y) => {
+    const i = (y * probe.width + x) * 4;
+    return data[i] <= threshold && data[i + 1] <= threshold && data[i + 2] <= threshold;
+  };
+
+  let top = 0;
+  let bottom = probe.height - 1;
+  let left = 0;
+  let right = probe.width - 1;
+
+  outerTop: for (; top < probe.height; top += 1) {
+    for (let x = 0; x < probe.width; x += sampleStep) {
+      if (!isDark(x, top)) break outerTop;
+    }
+  }
+  outerBottom: for (; bottom > top; bottom -= 1) {
+    for (let x = 0; x < probe.width; x += sampleStep) {
+      if (!isDark(x, bottom)) break outerBottom;
+    }
+  }
+  outerLeft: for (; left < probe.width; left += 1) {
+    for (let y = top; y <= bottom; y += sampleStep) {
+      if (!isDark(left, y)) break outerLeft;
+    }
+  }
+  outerRight: for (; right > left; right -= 1) {
+    for (let y = top; y <= bottom; y += sampleStep) {
+      if (!isDark(right, y)) break outerRight;
+    }
+  }
+
+  const pad = 1;
+  top = Math.max(0, top - pad);
+  left = Math.max(0, left - pad);
+  bottom = Math.min(probe.height - 1, bottom + pad);
+  right = Math.min(probe.width - 1, right + pad);
+
+  const cw = right - left + 1;
+  const ch = bottom - top + 1;
+  if (cw < probe.width * 0.55 || ch < probe.height * 0.55) {
+    // Suspicious crop — keep full frame
+    return { x: 0, y: 0, w, h, srcW: w, srcH: h };
+  }
+  if (cw >= probe.width * 0.97 && ch >= probe.height * 0.97) {
+    return { x: 0, y: 0, w, h, srcW: w, srcH: h };
+  }
+
+  const sx = w / probe.width;
+  const sy = h / probe.height;
+  return {
+    x: Math.round(left * sx),
+    y: Math.round(top * sy),
+    w: Math.round(cw * sx),
+    h: Math.round(ch * sy),
+    srcW: w,
+    srcH: h,
+  };
+}
+
+export function refreshHdmiCrop(videoEl, cam = {}) {
+  if (!videoEl || cam.cropBlackBars === false) {
+    hdmiCrop = null;
+    applyHdmiPreviewTransform(videoEl, null);
+    return null;
+  }
+  try {
+    hdmiCrop = detectContentBounds(videoEl);
+    applyHdmiPreviewTransform(videoEl, hdmiCrop);
+    return hdmiCrop;
+  } catch {
+    return null;
+  }
+}
+
+function startHdmiCropWatch(videoEl, cam = {}) {
+  stopHdmiCropWatch();
+  if (!videoEl || cam.cropBlackBars === false) return;
+  hdmiCropTimer = setInterval(() => {
+    if (!videoEl.isConnected || !videoEl.srcObject) {
+      stopHdmiCropWatch();
+      return;
+    }
+    refreshHdmiCrop(videoEl, cam);
+  }, 2500);
+}
+
+function stopHdmiCropWatch() {
+  if (hdmiCropTimer) {
+    clearInterval(hdmiCropTimer);
+    hdmiCropTimer = null;
+  }
+}
+
+/** Zoom/pan the <video> so black HDMI bars are cropped out of the visible preview. */
+export function applyHdmiPreviewTransform(videoEl, crop, { mirror = null } = {}) {
+  if (!videoEl) return;
+  const mirrored =
+    mirror == null ? videoEl.classList.contains('mirrored') : !!mirror;
+
+  if (!crop || crop.w >= crop.srcW * 0.97 && crop.h >= crop.srcH * 0.97) {
+    videoEl.style.removeProperty('--hdmi-zoom');
+    videoEl.style.removeProperty('--hdmi-ox');
+    videoEl.style.removeProperty('--hdmi-oy');
+    videoEl.classList.remove('hdmi-cropped');
+    videoEl.style.transform = mirrored ? 'scaleX(-1)' : '';
+    return;
+  }
+
+  const zoom = Math.max(crop.srcW / crop.w, crop.srcH / crop.h) * 1.01;
+  const ox = ((crop.x + crop.w / 2) / crop.srcW) * 100;
+  const oy = ((crop.y + crop.h / 2) / crop.srcH) * 100;
+  videoEl.style.setProperty('--hdmi-zoom', String(zoom));
+  videoEl.style.setProperty('--hdmi-ox', `${ox}%`);
+  videoEl.style.setProperty('--hdmi-oy', `${oy}%`);
+  videoEl.classList.add('hdmi-cropped');
+  videoEl.style.transformOrigin = `${ox}% ${oy}%`;
+  videoEl.style.transform = mirrored
+    ? `scaleX(-1) scale(var(--hdmi-zoom, 1))`
+    : `scale(var(--hdmi-zoom, 1))`;
+}
+
+/** Apply the same HDMI crop CSS to every live preview video. */
+export function syncHdmiPreviewToVideos(videoEls, { mirror = true } = {}) {
+  const list = (videoEls || []).filter(Boolean);
+  for (const el of list) {
+    applyHdmiPreviewTransform(el, hdmiCrop, { mirror });
+  }
 }
 
 /** Wait until the video has real frames (needed before capture). */
@@ -196,28 +395,55 @@ export async function attachActiveStream(videoEl, { mirror = true } = {}) {
 }
 
 export async function stopCamera(videoEl, { stopTracks = true } = {}) {
+  stopHdmiCropWatch();
+  hdmiCrop = null;
   if (stopTracks && stream) {
     for (const track of stream.getTracks()) track.stop();
     stream = null;
   }
-  if (videoEl) videoEl.srcObject = null;
+  if (videoEl) {
+    videoEl.srcObject = null;
+    videoEl.classList.remove('hdmi-cropped');
+    videoEl.style.removeProperty('--hdmi-zoom');
+    videoEl.style.transform = '';
+    videoEl.style.transformOrigin = '';
+  }
 }
 
-export function captureFrame(videoEl, { mirror = true } = {}) {
+export function captureFrame(videoEl, { mirror = true, cropBlackBars = true } = {}) {
   const w = videoEl.videoWidth;
   const h = videoEl.videoHeight;
   if (!w || !h) {
     throw new Error('Camera not ready — no frame to capture');
   }
+
+  let sx = 0;
+  let sy = 0;
+  let sw = w;
+  let sh = h;
+  if (cropBlackBars !== false) {
+    const crop = hdmiCrop?.srcW === w && hdmiCrop?.srcH === h
+      ? hdmiCrop
+      : detectContentBounds(videoEl);
+    if (crop && crop.w > 16 && crop.h > 16) {
+      sx = crop.x;
+      sy = crop.y;
+      sw = crop.w;
+      sh = crop.h;
+    }
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = sw;
+  canvas.height = sh;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   if (mirror) {
-    ctx.translate(w, 0);
+    ctx.translate(sw, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(videoEl, 0, 0, w, h);
+  ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, sw, sh);
   return canvas;
 }
 

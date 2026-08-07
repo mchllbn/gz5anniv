@@ -8,11 +8,11 @@ const DEFAULTS = {
   defaults: {
     photoCount: 3,
     countdownSeconds: 3,
-    mirrorPreview: true,
+    mirrorPreview: false,
     filter: 'natural',
     templateId: 'anniversary-navy',
     formatId: '2x6',
-    confettiOverlap: true,
+    confettiOverlap: false,
   },
   allowedPhotoCounts: [3],
   allowedCountdowns: [3, 5, 10],
@@ -27,6 +27,21 @@ const DEFAULTS = {
   silentPrint: false,
   outputDir: 'output',
   showTimestamp: false,
+  /** When true, print color adjustments are applied to preview + printed pages. */
+  printAdjustmentsEnabled: true,
+  /** When true, saved print color profile is reused for every future print. */
+  printAdjustmentsPermanent: true,
+  /** Print-color profile (brightness/clarity for brighter paper output). */
+  printAdjustments: {
+    brightness: 8,
+    contrast: 4,
+    clarity: 12,
+    saturation: 0,
+    exposure: 4,
+    warmth: 0,
+    shadows: 6,
+    highlights: -4,
+  },
   /** capture-card = HDMI → USB video grab; gphoto2/digicamcontrol = USB shutter */
   camera: {
     backend: 'capture-card',
@@ -35,6 +50,8 @@ const DEFAULTS = {
     captureHeight: 1080,
     mode: 'remote',
     previewSource: 'capture-card',
+    /** Auto-crop black letterbox/pillarbox from Fuji HDMI (and similar). */
+    cropBlackBars: true,
     gphotoPath: '',
     useWslGphoto: true,
     cmdPath: '',
@@ -105,6 +122,18 @@ export function composeSize(formatId, cfg = state.config) {
   };
 }
 
+/** Width ÷ height for UI/print (uses physical size when set, else canvas px). */
+export function formatAspectRatio(formatId, cfg = state.config) {
+  const f = getFormat(formatId, cfg);
+  if (f?.physicalSizeInches?.width && f?.physicalSizeInches?.height) {
+    return f.physicalSizeInches.width / f.physicalSizeInches.height;
+  }
+  if (f?.canvasPx?.width && f?.canvasPx?.height) {
+    return f.canvasPx.width / f.canvasPx.height;
+  }
+  return 2 / 6;
+}
+
 export function scaleSlots(slots, scale) {
   return (slots || []).map((s) => ({
     x: Math.round(s.x * scale),
@@ -144,6 +173,15 @@ async function loadWebConfig() {
   if (local.printerName) config.printerName = local.printerName;
   if (local.copies != null) config.copies = local.copies;
   if (local.debugSlots != null) config.debugSlots = local.debugSlots;
+  if (local.printAdjustments) {
+    config.printAdjustments = { ...config.printAdjustments, ...local.printAdjustments };
+  }
+  if (local.printAdjustmentsEnabled != null) {
+    config.printAdjustmentsEnabled = !!local.printAdjustmentsEnabled;
+  }
+  if (local.printAdjustmentsPermanent != null) {
+    config.printAdjustmentsPermanent = !!local.printAdjustmentsPermanent;
+  }
 
   state = {
     ...state,
@@ -169,6 +207,10 @@ export async function loadBootstrap() {
       defaults: { ...DEFAULTS.defaults, ...data.config?.defaults },
       event: { ...DEFAULTS.event, ...data.config?.event },
       camera: { ...DEFAULTS.camera, ...data.config?.camera },
+      printAdjustments: {
+        ...DEFAULTS.printAdjustments,
+        ...data.config?.printAdjustments,
+      },
     },
     isWeb: false,
   };
@@ -189,6 +231,9 @@ export async function saveConfig(partial) {
           debugSlots: next.debugSlots,
           camera: next.camera,
           canvas: { scale: next.canvas?.scale },
+          printAdjustments: next.printAdjustments,
+          printAdjustmentsEnabled: next.printAdjustmentsEnabled,
+          printAdjustmentsPermanent: next.printAdjustmentsPermanent,
         })
       );
     } catch {

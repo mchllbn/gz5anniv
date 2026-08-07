@@ -37,7 +37,7 @@ export function freshSession(defaults = {}) {
     photoCount: defaults.photoCount ?? 3,
     countdownSeconds: defaults.countdownSeconds ?? 3,
     mirrorPreview: defaults.mirrorPreview ?? true,
-    confettiOverlap: defaults.confettiOverlap !== false,
+    confettiOverlap: false,
     filterId: defaults.filter ?? 'natural',
     formatId: defaults.formatId ?? '2x6',
     adjustments: { ...DEFAULT_ADJUSTMENTS },
@@ -101,7 +101,7 @@ export function resetSession(defaults = {}) {
     photoCount: store.session.photoCount,
     countdownSeconds: store.session.countdownSeconds,
     mirrorPreview: store.session.mirrorPreview,
-    confettiOverlap: store.session.confettiOverlap,
+    confettiOverlap: false,
     deviceId: store.session.deviceId,
   };
   clearShotBuffers(store.session.shots);
@@ -114,7 +114,7 @@ export function resetSession(defaults = {}) {
     photoCount: keep.photoCount,
     countdownSeconds: keep.countdownSeconds,
     mirrorPreview: keep.mirrorPreview,
-    confettiOverlap: keep.confettiOverlap,
+    confettiOverlap: false,
     deviceId: keep.deviceId,
   };
   emit();

@@ -6,6 +6,7 @@ import {
   loadBootstrap,
   getConfig,
   getFormat,
+  formatAspectRatio,
   getState,
   saveConfig,
   composeSize,
@@ -33,9 +34,11 @@ import {
   usesTetherCapture,
   startSessionPreview,
   stopSessionPreview,
+  refreshHdmiCrop,
+  syncHdmiPreviewToVideos,
 } from './camera.js';
 import { runCaptureSession, revokeShots, makeRemoteCaptureStill } from './capture.js';
-import { FILTERS, ADJUST_CONTROLS, DEFAULT_ADJUSTMENTS, normalizeAdjustments } from './filters.js';
+import { FILTERS, ADJUST_CONTROLS, DEFAULT_ADJUSTMENTS, normalizeAdjustments, PRINT_ADJUST_CONTROLS, DEFAULT_PRINT_ADJUSTMENTS, applyPrintColorToPngBase64 } from './filters.js';
 import {
   templatesForFormatCount,
   pickTemplateForColor,
@@ -48,8 +51,12 @@ import {
   canvasToPngBase64,
   drawPreview,
   composePrintSheet,
+  composeStripA4Sheet,
+  composePolaroidA4Sheet,
+  composeLandscapeSheetA4Sheet,
   STRIP_PRINT_SHEET,
   POLAROID_PRINT_SHEET,
+  LANDSCAPE_SHEET_PRINT_SHEET,
   singlePrintPageInches,
 } from './compose.js';
 import {
@@ -63,6 +70,9 @@ import {
 } from './stickers.js';
 import {
   MAX_SHEET_ITEMS,
+  MAX_STRIP_SHEET_ITEMS,
+  MAX_POLAROID_SHEET_ITEMS,
+  MAX_LANDSCAPE_SHEET_ITEMS,
   loadAlbum,
   addStripToAlbum,
   removeStripFromAlbum,
@@ -93,31 +103,54 @@ function setText(el, text) {
 
 /* ——— Phase: Idle ——— */
 function openSetup() {
-  const cfg = getConfig();
-  const d = cfg.defaults || {};
-  const formatId = d.formatId || '2x6';
-  const fmt = getFormat(formatId, cfg);
-  const allowedPhotoCounts = fmt?.allowedPhotoCounts || cfg.allowedPhotoCounts || [3];
-  const defaultPhotoCount = allowedPhotoCounts.includes(d.photoCount) ? d.photoCount : allowedPhotoCounts[0];
-  const preferredTpl = getTemplate(d.templateId);
-  const tpl = pickTemplateForColor(formatId, defaultPhotoCount, 'navy', preferredTpl?.id || d.templateId);
-  patchSession({
-    formatId,
-    photoCount: defaultPhotoCount,
-    countdownSeconds: d.countdownSeconds ?? 3,
-    mirrorPreview: d.mirrorPreview !== false,
-    confettiOverlap: d.confettiOverlap !== false,
-    filterId: d.filter || 'natural',
-    templateId: tpl?.id || d.templateId || 'anniversary-navy',
-    printCopies: getConfig().copies || 1,
-    safeBounds: false,
-  });
-  // Migrate removed landscape polaroid id
-  if (getSession().formatId === '6x4-polaroid') {
-    patchSession({ formatId: '4x6-polaroid', photoCount: 1, templateId: 'polaroid-4x6' });
+  try {
+    const cfg = getConfig();
+    const d = cfg.defaults || {};
+    const formatId = d.formatId || '2x6';
+    const fmt = getFormat(formatId, cfg);
+    const allowedPhotoCounts = fmt?.allowedPhotoCounts || cfg.allowedPhotoCounts || [3];
+    const defaultPhotoCount = allowedPhotoCounts.includes(d.photoCount) ? d.photoCount : allowedPhotoCounts[0];
+    const preferredTpl = getTemplate(d.templateId);
+    const tpl = pickTemplateForColor(formatId, defaultPhotoCount, 'navy', preferredTpl?.id || d.templateId);
+    patchSession({
+      formatId,
+      photoCount: defaultPhotoCount,
+      countdownSeconds: d.countdownSeconds ?? 3,
+      mirrorPreview:
+        d.mirrorPreview != null
+          ? !!d.mirrorPreview
+          : cfg.camera?.backend !== 'capture-card',
+      confettiOverlap: false,
+      filterId: d.filter || 'natural',
+      templateId: tpl?.id || d.templateId || 'anniversary-navy',
+      printCopies: getConfig().copies || 1,
+      safeBounds: false,
+    });
+    if (getSession().formatId === '6x4-polaroid') {
+      patchSession({ formatId: '4x6-polaroid', photoCount: 1, templateId: 'polaroid-4x6' });
+    }
+    renderSetup();
+    go(Phase.SETUP);
+  } catch (err) {
+    console.error('openSetup failed:', err);
+    go(Phase.SETUP, { force: true });
+    const hint = $('setup-preview-hint');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = err?.message || 'Setup could not fully load.';
+    }
   }
-  renderSetup();
-  go(Phase.SETUP);
+}
+
+/** Setup format picker — left-to-right display order. */
+const SETUP_FORMAT_ORDER = ['4x6-polaroid', '2x6', '4x6', '6x4-four'];
+
+function sortFormatsForSetup(formats) {
+  const rank = (id) => {
+    const i = SETUP_FORMAT_ORDER.indexOf(id);
+    return i >= 0 ? i : SETUP_FORMAT_ORDER.length;
+  };
+  return [...formats].sort((a, b) => rank(a.id) - rank(b.id) || String(a.id).localeCompare(b.id));
 }
 
 /* ——— Phase 1: Setup (NO timer) ——— */
@@ -125,21 +158,23 @@ function renderSetup() {
   const cfg = getConfig();
   const session0 = getSession();
   const cfgFormats = Array.isArray(cfg.formats) && cfg.formats.length ? cfg.formats : [];
-  const formatList = cfgFormats.length
-    ? cfgFormats
-    : [
-        {
-          id: '2x6',
-          label: '2x6 Strip',
-          allowedPhotoCounts: cfg.allowedPhotoCounts || [3],
-          canvasPx: { width: 600, height: 1800 },
-          physicalSizeInches: { width: 2, height: 6 },
-        },
-      ];
+  const formatList = sortFormatsForSetup(
+    cfgFormats.length
+      ? cfgFormats
+      : [
+          {
+            id: '2x6',
+            label: '2x6 Strip',
+            allowedPhotoCounts: cfg.allowedPhotoCounts || [3],
+            canvasPx: { width: 600, height: 1800 },
+            physicalSizeInches: { width: 2, height: 6 },
+          },
+        ]
+  );
 
   const formatId = formatList.some((f) => f.id === session0.formatId)
     ? session0.formatId
-    : formatList[0].id;
+    : formatList.find((f) => f.id === (cfg.defaults?.formatId || '2x6'))?.id || formatList[0].id;
   if (session0.formatId !== formatId) patchSession({ formatId });
 
   const session = getSession();
@@ -235,8 +270,6 @@ function renderSetup() {
   }
 
   $('setup-mirror').checked = getSession().mirrorPreview !== false;
-  const confettiEl = $('setup-confetti-overlap');
-  if (confettiEl) confettiEl.checked = getSession().confettiOverlap !== false;
 
   void renderOrientationPreview(getSession().photoCount);
 
@@ -265,19 +298,19 @@ function fallbackSlotsForCount(n, baseW, baseH) {
   // 4×6 landscape collage (1800×1200) — narrower brand column, wider right photos
   if (baseW > baseH && n === 3) {
     return [
-      { x: 40, y: 40, w: 653, h: 542 },
-      { x: 729, y: 40, w: 1031, h: 542 },
-      { x: 729, y: 618, w: 1031, h: 542 },
+      { x: 36, y: 36, w: 656, h: 544 },
+      { x: 732, y: 36, w: 1032, h: 544 },
+      { x: 732, y: 620, w: 1032, h: 544 },
     ];
   }
 
   // 6×4 four-up — logo TL, large TR, 3 small bottom
   if (baseW > baseH && n === 4) {
     return [
-      { x: 659, y: 48, w: 1093, h: 600 },
-      { x: 49, y: 680, w: 546, h: 472 },
-      { x: 627, y: 680, w: 546, h: 472 },
-      { x: 1205, y: 680, w: 546, h: 472 },
+      { x: 664, y: 40, w: 1096, h: 604 },
+      { x: 41, y: 684, w: 546, h: 476 },
+      { x: 627, y: 684, w: 546, h: 476 },
+      { x: 1213, y: 684, w: 546, h: 476 },
     ];
   }
 
@@ -307,9 +340,9 @@ function fallbackSlotsForCount(n, baseW, baseH) {
     ];
   }
   return [
-    scale({ x: 34, y: 30, w: 532, h: 392 }),
-    scale({ x: 34, y: 446, w: 532, h: 392 }),
-    scale({ x: 34, y: 862, w: 532, h: 390 }),
+    scale({ x: 28, y: 26, w: 544, h: 409 }),
+    scale({ x: 28, y: 449, w: 544, h: 409 }),
+    scale({ x: 28, y: 872, w: 544, h: 411 }),
   ];
 }
 
@@ -340,6 +373,11 @@ async function renderOrientationPreview(photoCount) {
 
   mock.style.setProperty('--strip-px-w', String(baseW));
   mock.style.setProperty('--strip-px-h', String(baseH));
+  mock.style.setProperty('--strip-ar', `${baseW} / ${baseH}`);
+  mock.style.aspectRatio = `${baseW} / ${baseH}`;
+  if (stage) {
+    stage.style.aspectRatio = '';
+  }
   mock.dataset.orient = baseW >= baseH ? 'landscape' : 'portrait';
 
   const tplPreferred = getTemplate(session.templateId);
@@ -374,28 +412,32 @@ async function renderOrientationPreview(photoCount) {
   if (frameImg && tpl) {
     try {
       const img = await loadTemplateImage(tpl);
-      const overlap = session.confettiOverlap !== false;
-      if (overlap) {
-        frameImg.src = img.src;
-      } else {
-        // Punch photo holes clean so confetti does not cover the live preview
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth || baseW;
-        c.height = img.naturalHeight || baseH;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        const sx = c.width / baseW;
-        const sy = c.height / baseH;
-        for (const rect of slotRects) {
-          ctx.clearRect(
-            Math.round(rect.x * sx),
-            Math.round(rect.y * sy),
-            Math.round(rect.w * sx),
-            Math.round(rect.h * sy)
-          );
-        }
-        frameImg.src = c.toDataURL('image/png');
-      }
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || baseW;
+      c.height = img.naturalHeight || baseH;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const sx = c.width / baseW;
+      const sy = c.height / baseH;
+      const brandOverlap = Math.max(0, Number(tpl.brandOverlapPx) || 0);
+      // Clear photo holes fully; keep overlapping brand pixels (Polaroid 20) in the hole
+      slotRects.forEach((rect, i) => {
+        const isBottom =
+          i ===
+          slotRects.reduce((best, r, idx, arr) => {
+            const b = r.y + r.h;
+            const bb = arr[best].y + arr[best].h;
+            return b >= bb ? idx : best;
+          }, 0);
+        const keepBrand = isBottom && brandOverlap > 0 ? brandOverlap * sy : 0;
+        ctx.clearRect(
+          Math.round(rect.x * sx),
+          Math.round(rect.y * sy),
+          Math.round(rect.w * sx),
+          Math.max(1, Math.round(rect.h * sy - keepBrand))
+        );
+      });
+      frameImg.src = c.toDataURL('image/png');
       frameImg.alt = tpl.name || 'Strip frame preview';
       frameImg.hidden = false;
       mock.dataset.templateId = tpl.id;
@@ -424,6 +466,10 @@ async function renderOrientationPreview(photoCount) {
   }
 
   syncSetupPreviewVideos();
+  requestAnimationFrame(() => {
+    mock?.style?.removeProperty('width');
+    mock?.style?.removeProperty('height');
+  });
 }
 
 function setupPreviewVideoEls() {
@@ -448,6 +494,11 @@ function syncSetupPreviewVideos() {
   document.querySelectorAll('.strip-mock-slots .slot').forEach((slot) => {
     slot.classList.toggle('has-live', live);
   });
+  if (live) {
+    const main = $('setup-preview');
+    if (main) refreshHdmiCrop(main, getConfig().camera || {});
+    syncHdmiPreviewToVideos(setupPreviewVideoEls(), { mirror });
+  }
 }
 
 function detachSetupPreviewVideos() {
@@ -506,7 +557,7 @@ function updateCaptureSourceHint() {
     el.hidden = false;
   } else if (cfg.camera?.backend === 'capture-card') {
     el.textContent =
-      'HDMI capture card: Begin Capture saves a frame from the camera HDMI feed (USB Video device) — not your Windows desktop.';
+      'HDMI capture card: Begin Capture saves a frame from the camera HDMI feed (USB Video). Black bars are auto-cropped. For best quality on Fuji: set HDMI to 1080p and turn Info Display OFF.';
     el.hidden = false;
   } else {
     el.textContent = 'Begin Capture saves what you see in the live preview.';
@@ -586,7 +637,6 @@ function confirmBeginCapture() {
     return;
   patchSession({
     mirrorPreview: $('setup-mirror').checked,
-    confettiOverlap: $('setup-confetti-overlap')?.checked !== false,
     deviceId: !$('camera-field').hidden ? $('setup-camera').value || null : session.deviceId,
   });
   handoffSetupPreviewToCapture();
@@ -625,6 +675,8 @@ async function startCapture() {
     const live = getStream();
     if (live?.active) {
       await attachActiveStream(video, { mirror: session.mirrorPreview !== false });
+      refreshHdmiCrop(video, cfg.camera || {});
+      syncHdmiPreviewToVideos([video], { mirror: session.mirrorPreview !== false });
     } else {
       await startCamera(video, {
         deviceId: session.deviceId || undefined,
@@ -632,6 +684,7 @@ async function startCapture() {
         cfg: getConfig(),
       });
       await waitForVideo(video);
+      refreshHdmiCrop(video, cfg.camera || {});
     }
     await populateCameras();
 
@@ -1223,8 +1276,9 @@ function fitStripPreviewToContainer() {
   const overlay = $('sticker-overlay');
   if (!wrap || !strip || !strip.width || !strip.height) return;
 
-  const availW = Math.max(1, wrap.clientWidth);
-  const availH = Math.max(1, wrap.clientHeight);
+  const pad = 4;
+  const availW = Math.max(1, wrap.clientWidth - pad);
+  const availH = Math.max(1, wrap.clientHeight - pad);
   const scale = Math.min(availW / strip.width, availH / strip.height);
   const w = Math.max(1, Math.floor(strip.width * scale));
   const h = Math.max(1, Math.floor(strip.height * scale));
@@ -1258,7 +1312,7 @@ async function recompose() {
       lockedElements,
       stickers: userElements,
       safeBounds: session.safeBounds === true,
-      confettiOverlap: session.confettiOverlap !== false,
+      confettiOverlap: false,
     });
     const png = canvasToPngBase64(composed);
     if (session.composed) {
@@ -1305,12 +1359,141 @@ async function startOver() {
 }
 
 function printSheetForAlbumItems(strips) {
-  const polaroid = (strips || []).every((s) => String(s.formatId || '').includes('polaroid'));
-  return polaroid ? POLAROID_PRINT_SHEET : STRIP_PRINT_SHEET;
+  const formatIds = (strips || []).map((s) => s.formatId || '2x6');
+  const allStrips = formatIds.length > 0 && formatIds.every((id) => String(id).includes('2x6'));
+  const allPolaroids = formatIds.every((id) => String(id).includes('polaroid'));
+  const kind = allStrips ? 'strip' : allPolaroids ? 'polaroid' : 'mixed';
+  return {
+    sheet: STRIP_PRINT_SHEET,
+    kind,
+    allStrips,
+  };
 }
 
-function sheetSizeLabel(sheet) {
-  return `${sheet.widthCm}×${sheet.heightCm} cm landscape`;
+function sheetSizeLabel(_sheet, kind = 'strip') {
+  if (kind === 'strip') return 'A4 portrait · 4 horizontal 2×6 strip rows';
+  if (kind === 'polaroid') return 'A4 portrait · 2×4 polaroid grid (8 slots)';
+  if (kind === 'sheet') return 'A4 portrait · 2×2 landscape sheets (4×6 / four-up)';
+  if (kind === 'mixed') return 'A4 (21.00×29.70 cm), mixed formats';
+  return 'A4 sheet';
+}
+
+function sheetLayoutForKind(kind) {
+  if (kind === 'strip') return { marginIn: 0.35, gapIn: 0.18 };
+  if (kind === 'polaroid') return { marginIn: 0.4, gapIn: 0 };
+  if (kind === 'sheet') return { marginIn: 0.4, gapIn: 0 };
+  return { marginIn: 0.05, gapIn: 0.055 };
+}
+
+function isAlbumStripFormat(formatId) {
+  return String(formatId || '').includes('2x6');
+}
+
+function isAlbumPolaroidFormat(formatId) {
+  return String(formatId || '').includes('polaroid');
+}
+
+function isAlbumLandscapeSheetFormat(formatId) {
+  const id = String(formatId || '').toLowerCase();
+  return id === '4x6' || id === '6x4-four';
+}
+
+async function albumPrintEligibility() {
+  const ids = [...(getSession().albumSelectedIds || [])];
+  const n = ids.length;
+  if (n < 1) {
+    return {
+      ok: false,
+      n,
+      kind: null,
+      meta: '0 selected · strips (4), sheets (4), or polaroids (8)',
+      status: '',
+    };
+  }
+  const strips = await getAlbumStripsByIds(ids);
+  if (strips.length !== n) {
+    return { ok: false, n, kind: null, meta: `${n} selected`, status: 'Some selected items are missing.' };
+  }
+  const allStrips = strips.every((s) => isAlbumStripFormat(s.formatId));
+  const allPolaroids = strips.every((s) => isAlbumPolaroidFormat(s.formatId));
+  const allSheets = strips.every((s) => isAlbumLandscapeSheetFormat(s.formatId));
+
+  if (allStrips) {
+    if (n > MAX_STRIP_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'strip',
+        meta: `${n} selected`,
+        status: `A4 strip sheet fits ${MAX_STRIP_SHEET_ITEMS} strips max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'strip',
+      strips,
+      meta: `${n} of ${MAX_STRIP_SHEET_ITEMS} strips · A4 stack ready`,
+      status: '',
+    };
+  }
+
+  if (allPolaroids) {
+    if (n > MAX_POLAROID_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'polaroid',
+        meta: `${n} selected`,
+        status: `A4 polaroid sheet fits ${MAX_POLAROID_SHEET_ITEMS} polaroids max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'polaroid',
+      strips,
+      meta: `${n} of ${MAX_POLAROID_SHEET_ITEMS} polaroids · A4 2×4 ready`,
+      status: '',
+    };
+  }
+
+  if (allSheets) {
+    if (n > MAX_LANDSCAPE_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'sheet',
+        meta: `${n} selected`,
+        status: `A4 sheet layout fits ${MAX_LANDSCAPE_SHEET_ITEMS} items max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'sheet',
+      strips,
+      meta: `${n} of ${MAX_LANDSCAPE_SHEET_ITEMS} sheets · A4 2×2 ready`,
+      status: '',
+    };
+  }
+
+  return {
+    ok: false,
+    n,
+    kind: 'mixed',
+    meta: `${n} selected · one format only`,
+    status: 'Print one format per sheet — strips, 4×6/four-up sheets, or polaroids.',
+  };
+}
+
+async function syncAlbumSelectionMeta() {
+  const state = await albumPrintEligibility();
+  setText($('album-selection-meta'), state.meta);
+  const printBtn = $('btn-album-print');
+  if (printBtn) printBtn.disabled = !state.ok;
+  if (state.status) setText($('album-status'), state.status);
+  else setText($('album-status'), '');
 }
 
 /* ——— Album ——— */
@@ -1338,23 +1521,38 @@ function formatAlbumDate(iso) {
   }
 }
 
-function syncAlbumSelectionMeta() {
-  const n = (getSession().albumSelectedIds || []).length;
-  setText($('album-selection-meta'), `${n} of ${MAX_SHEET_ITEMS} selected`);
-  const printBtn = $('btn-album-print');
-  if (printBtn) printBtn.disabled = n < 1;
-}
-
-function toggleAlbumSelection(id) {
+function toggleAlbumSelection(id, formatId) {
   const current = [...(getSession().albumSelectedIds || [])];
   const idx = current.indexOf(id);
   if (idx >= 0) {
     current.splice(idx, 1);
   } else {
-    if (current.length >= MAX_SHEET_ITEMS) {
+    const family = albumFormatFamily(formatId);
+    if (current.length) {
+      const firstEl = document.querySelector(`#album-grid [data-id="${CSS.escape(current[0])}"]`);
+      const firstFam = albumFormatFamily(firstEl?.dataset.formatId || formatId);
+      if (firstFam.key !== family.key) {
+        setText(
+          $('album-status'),
+          'Select one format per print — strips, 4×6/four-up sheets, or polaroids.'
+        );
+        return;
+      }
+    }
+    const max =
+      family.key === 'polaroid'
+        ? MAX_POLAROID_SHEET_ITEMS
+        : family.key === 'sheet'
+          ? MAX_LANDSCAPE_SHEET_ITEMS
+          : MAX_STRIP_SHEET_ITEMS;
+    if (current.length >= max) {
       setText(
         $('album-status'),
-        `Sheet fits ${MAX_SHEET_ITEMS} items max — deselect one first.`
+        family.key === 'polaroid'
+          ? `A4 polaroid grid fits ${max} max — deselect one first.`
+          : family.key === 'sheet'
+            ? `A4 sheet grid fits ${max} max — deselect one first.`
+            : `A4 strip sheet fits ${max} strips max — deselect one first.`
       );
       return;
     }
@@ -1363,6 +1561,73 @@ function toggleAlbumSelection(id) {
   }
   patchSession({ albumSelectedIds: current });
   void renderAlbum();
+}
+
+/** Album card layout from format — portrait strips vs landscape sheets. */
+function albumCardLayout(formatId) {
+  const id = String(formatId || '2x6');
+  const ar = formatAspectRatio(id, getConfig());
+  const fmt = getFormat(id, getConfig());
+  const label = fmt?.label || id;
+  let orient = 'portrait';
+  if (ar >= 1.15) orient = 'landscape';
+  else if (ar >= 0.85) orient = 'square';
+  return { ar, orient, label, formatId: id };
+}
+
+/** Group mixed formats so rows stay aligned (strips / sheets / polaroids). */
+function albumFormatFamily(formatId) {
+  const id = String(formatId || '2x6').toLowerCase();
+  if (id.includes('polaroid')) return { key: 'polaroid', title: 'Polaroid', order: 3 };
+  if (id.includes('6x4') || id === '4x6') return { key: 'sheet', title: 'Sheets', order: 2 };
+  return { key: 'strip', title: '2×6 Strips', order: 1 };
+}
+
+function createAlbumCard(item, selected) {
+  const layout = albumCardLayout(item.formatId || '2x6');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className =
+    `album-card album-card--${layout.orient}` + (selected.has(item.id) ? ' is-selected' : '');
+  btn.setAttribute('role', 'listitem');
+  btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
+  btn.dataset.id = item.id;
+  btn.dataset.formatId = layout.formatId;
+  btn.dataset.orient = layout.orient;
+  btn.style.setProperty('--thumb-ar', String(layout.ar));
+
+  const media = document.createElement('div');
+  media.className = 'album-card-media';
+
+  const img = document.createElement('img');
+  img.className = 'album-card-thumb';
+  img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
+  img.alt = `${layout.label} from ${formatAlbumDate(item.createdAt)}`;
+  img.draggable = false;
+  img.addEventListener(
+    'load',
+    () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        btn.style.setProperty('--thumb-ar', String(img.naturalWidth / img.naturalHeight));
+      }
+    },
+    { once: true }
+  );
+  media.appendChild(img);
+
+  const meta = document.createElement('div');
+  meta.className = 'album-card-meta';
+  const formatTag = document.createElement('span');
+  formatTag.className = 'album-card-format';
+  formatTag.textContent = layout.label;
+  const dateTag = document.createElement('span');
+  dateTag.className = 'album-card-date';
+  dateTag.textContent = formatAlbumDate(item.createdAt);
+  meta.append(formatTag, dateTag);
+
+  btn.append(media, meta);
+  btn.addEventListener('click', () => toggleAlbumSelection(item.id, item.formatId));
+  return btn;
 }
 
 async function renderAlbum() {
@@ -1380,27 +1645,32 @@ async function renderAlbum() {
   }
   if (empty) empty.hidden = true;
 
+  const families = new Map();
   for (const item of items) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'album-card' + (selected.has(item.id) ? ' is-selected' : '');
-    btn.setAttribute('role', 'listitem');
-    btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
-    btn.dataset.id = item.id;
+    const fam = albumFormatFamily(item.formatId || '2x6');
+    if (!families.has(fam.key)) families.set(fam.key, { ...fam, items: [] });
+    families.get(fam.key).items.push(item);
+  }
 
-    const img = document.createElement('img');
-    img.className = 'album-card-thumb';
-    img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
-    img.alt = `Strip from ${formatAlbumDate(item.createdAt)}`;
-    img.draggable = false;
+  const ordered = [...families.values()].sort((a, b) => a.order - b.order);
+  for (const fam of ordered) {
+    const section = document.createElement('section');
+    section.className = `album-section album-section--${fam.key}`;
+    section.setAttribute('aria-label', fam.title);
 
-    const meta = document.createElement('span');
-    meta.className = 'album-card-meta';
-    meta.textContent = formatAlbumDate(item.createdAt);
+    const heading = document.createElement('h3');
+    heading.className = 'album-section-title';
+    heading.textContent = `${fam.title} · ${fam.items.length}`;
+    section.appendChild(heading);
 
-    btn.append(img, meta);
-    btn.addEventListener('click', () => toggleAlbumSelection(item.id));
-    grid.appendChild(btn);
+    const row = document.createElement('div');
+    row.className = 'album-section-grid';
+    row.setAttribute('role', 'presentation');
+    for (const item of fam.items) {
+      row.appendChild(createAlbumCard(item, selected));
+    }
+    section.appendChild(row);
+    grid.appendChild(section);
   }
   syncAlbumSelectionMeta();
 }
@@ -1408,7 +1678,7 @@ async function renderAlbum() {
 async function saveCurrentStripToAlbum({ openAfter = false } = {}) {
   await ensureComposedForExport();
   const session = getSession();
-  const pngBase64 = await normalizeStripForAlbum(session.pngBase64);
+  const pngBase64 = await normalizeStripForAlbum(session.pngBase64, session.formatId || '2x6', getConfig());
   let thumbDataUrl;
   try {
     thumbDataUrl = await makeAlbumThumb(pngBase64);
@@ -1426,7 +1696,7 @@ async function saveCurrentStripToAlbum({ openAfter = false } = {}) {
   const count = await albumCount();
   setText(
     $('customize-status'),
-    `Saved to album (${count} item${count === 1 ? '' : 's'}). Pick up to ${MAX_SHEET_ITEMS} for one print sheet.`
+    `Saved to album (${count} item${count === 1 ? '' : 's'}). Print: up to ${MAX_STRIP_SHEET_ITEMS} strips, ${MAX_LANDSCAPE_SHEET_ITEMS} sheets, or ${MAX_POLAROID_SHEET_ITEMS} polaroids per A4 page.`
   );
   if (openAfter && newest) {
     openAlbum({ preselectId: newest.id, fromCustomize: true });
@@ -1455,72 +1725,108 @@ function leaveAlbum() {
 }
 
 async function printSelectedAlbumStrips() {
-  const ids = [...(getSession().albumSelectedIds || [])];
-  if (!ids.length) {
-    setText($('album-status'), 'Select at least one strip.');
-    return;
-  }
-  if (ids.length > MAX_SHEET_ITEMS) {
-    setText($('album-status'), `Print sheet fits ${MAX_SHEET_ITEMS} items max.`);
+  const eligibility = await albumPrintEligibility();
+  if (!eligibility.ok) {
+    setText(
+      $('album-status'),
+      eligibility.status ||
+        'Select strips, 4×6/four-up sheets, or polaroids (one format) for A4 print.'
+    );
+    syncAlbumSelectionMeta();
     return;
   }
 
   const printBtn = $('btn-album-print');
   if (printBtn) printBtn.disabled = true;
-  setText($('album-status'), 'Building print sheet…');
+  const kind = eligibility.kind;
+  setText(
+    $('album-status'),
+    kind === 'polaroid'
+      ? 'Building A4 polaroid grid…'
+      : kind === 'sheet'
+        ? 'Building A4 sheet grid…'
+        : 'Building A4 strip sheet…'
+  );
 
   try {
-    const strips = await getAlbumStripsByIds(ids);
-    if (!strips.length) throw new Error('Selected items were not found in the album.');
-    const kinds = new Set(
-      strips.map((s) => (String(s.formatId || '').includes('polaroid') ? 'polaroid' : 'strip'))
-    );
-    if (kinds.size > 1) {
-      throw new Error('Select only strips or only polaroids for one print sheet.');
-    }
-    const sheetSpec = printSheetForAlbumItems(strips);
+    const strips = eligibility.strips;
     const images = [];
     for (const strip of strips) {
       images.push(await loadPngBase64(strip.pngBase64));
     }
-    const sheet = composePrintSheet(images, { sheet: sheetSpec, cutGuides: true });
+    const sheet =
+      kind === 'polaroid'
+        ? composePolaroidA4Sheet(images, {
+            cutGuides: true,
+            marginIn: 0.4,
+            dangerZone: false,
+          })
+        : kind === 'sheet'
+          ? composeLandscapeSheetA4Sheet(images, {
+              cutGuides: true,
+              marginIn: 0.4,
+              dangerZone: false,
+            })
+          : composeStripA4Sheet(images, {
+              cutGuides: true,
+              marginIn: 0.35,
+              gapIn: 0.18,
+            });
     const pngBase64 = canvasToPngBase64(sheet);
+    const sheetSpec =
+      kind === 'polaroid'
+        ? POLAROID_PRINT_SHEET
+        : kind === 'sheet'
+          ? LANDSCAPE_SHEET_PRINT_SHEET
+          : STRIP_PRINT_SHEET;
     patchSession({
       pngBase64,
       printMode: 'sheet',
-      formatId: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid-sheet' : 'strip-sheet',
-      printSheetKey: sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip',
+      formatId: 'a4-sheet',
+      printSheetKey: kind,
     });
 
     const cfg = getConfig();
     const useSilentKiosk = cfg.silentPrint === true && window.photobooth?.printStrip;
     if (useSilentKiosk) {
       const copies = Number(getSession().printCopies) || cfg.copies || 1;
-      const result = await window.photobooth.printStrip({
-        pngBase64,
-        printerName: cfg.printerName,
-        copies,
-        widthPx: sheet.width,
-        heightPx: sheet.height,
-        pageWidthIn: sheetSpec.widthIn,
-        pageHeightIn: sheetSpec.heightIn,
-      });
-      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
-      setText($('album-status'), 'Printed — thank you!');
-      leaveAlbum();
-    } else {
+      setText($('album-status'), 'Print preview ready. Click Print now when alignment looks right.');
       await openPrintPage(pngBase64, {
-        autoDialog: true,
+        autoDialog: false,
         mode: 'sheet',
         sheet: sheetSpec,
+        printKind: kind,
         returnPhase: Phase.ALBUM,
+        printAction: {
+          type: 'silent',
+          buttonLabel: 'Print now',
+          statusTarget: 'album-status',
+          payload: {
+            pngBase64,
+            printerName: cfg.printerName,
+            copies,
+            widthPx: sheet.width,
+            heightPx: sheet.height,
+            pageWidthIn: A4_PAGE_WIDTH_IN,
+            pageHeightIn: A4_PAGE_HEIGHT_IN,
+          },
+        },
+      });
+    } else {
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'sheet',
+        sheet: sheetSpec,
+        printKind: kind,
+        returnPhase: Phase.ALBUM,
+        printAction: { type: 'dialog', buttonLabel: 'Open print dialog' },
       });
     }
   } catch (err) {
     setText($('album-status'), err.message || 'Print sheet failed');
     if (getPhase() !== Phase.ALBUM) go(Phase.ALBUM, { force: true });
   } finally {
-    syncAlbumSelectionMeta();
+    void syncAlbumSelectionMeta();
   }
 }
 
@@ -1555,8 +1861,219 @@ async function savePng() {
 
 let printPageResolve = null;
 let printReturnPhase = Phase.IDLE;
+let pendingPrintAction = null;
+let rawPrintPngBase64 = null;
+let printAdjustDraft = null;
+let printAdjustEnabledDraft = true;
+let printAdjustPermanentDraft = true;
+let printPreviewBusy = false;
+let printPreviewTimer = null;
+const A4_PAGE_WIDTH_IN = 8.27;
+const A4_PAGE_HEIGHT_IN = 11.69;
+
+function getPrintAdjustments() {
+  return normalizeAdjustments(getConfig().printAdjustments || DEFAULT_PRINT_ADJUSTMENTS);
+}
+
+function isPrintColorActive() {
+  return printAdjustEnabledDraft !== false;
+}
+
+async function refreshPrintPreviewWithAdjustments() {
+  if (!rawPrintPngBase64) return;
+  while (printPreviewBusy) {
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  printPreviewBusy = true;
+  try {
+    let out = rawPrintPngBase64;
+    if (isPrintColorActive()) {
+      const adj = normalizeAdjustments(printAdjustDraft || getPrintAdjustments());
+      out = await applyPrintColorToPngBase64(rawPrintPngBase64, adj);
+    }
+    await loadPrintStripImage(out);
+    if (pendingPrintAction?.type === 'silent' && pendingPrintAction.payload) {
+      pendingPrintAction = {
+        ...pendingPrintAction,
+        payload: { ...pendingPrintAction.payload, pngBase64: out },
+      };
+    }
+    patchSession({ pngBase64: out });
+  } catch (err) {
+    setText($('print-adjust-status'), err.message || 'Could not update print preview');
+  } finally {
+    printPreviewBusy = false;
+  }
+}
+
+function syncPrintColorOptionChecks() {
+  const enabledEl = $('print-adj-enabled');
+  const permanentEl = $('print-adj-permanent');
+  if (enabledEl) enabledEl.checked = printAdjustEnabledDraft !== false;
+  if (permanentEl) permanentEl.checked = printAdjustPermanentDraft !== false;
+  const panel = $('print-advanced-panel');
+  panel?.classList.toggle('is-disabled', printAdjustEnabledDraft === false);
+  const saveBtn = $('btn-print-adjust-save');
+  if (saveBtn) {
+    saveBtn.textContent =
+      printAdjustPermanentDraft !== false ? 'Save for all prints' : 'Apply to this print only';
+  }
+}
+
+function setPrintAction(action = null) {
+  pendingPrintAction = action;
+  const btn = $('btn-print-dialog');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = action?.buttonLabel || 'Print';
+}
+
+function syncPrintAdjustValues() {
+  const adj = printAdjustDraft || getPrintAdjustments();
+  for (const spec of PRINT_ADJUST_CONTROLS) {
+    const input = $(`print-adj-${spec.key}`);
+    const val = $(`print-adj-val-${spec.key}`);
+    if (input) input.value = String(adj[spec.key] ?? 0);
+    if (val) val.textContent = String(adj[spec.key] ?? 0);
+  }
+  syncPrintColorOptionChecks();
+}
+
+function renderPrintAdjustControls() {
+  const grid = $('print-adjust-grid');
+  if (!grid || grid.dataset.ready === '1') {
+    syncPrintAdjustValues();
+    return;
+  }
+  grid.innerHTML = '';
+  printAdjustDraft = { ...getPrintAdjustments() };
+  for (const spec of PRINT_ADJUST_CONTROLS) {
+    const row = document.createElement('div');
+    row.className = 'print-adjust-row';
+    const label = document.createElement('label');
+    label.htmlFor = `print-adj-${spec.key}`;
+    label.textContent = spec.label;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `print-adj-${spec.key}`;
+    input.min = String(spec.min);
+    input.max = String(spec.max);
+    input.step = String(spec.step);
+    input.value = String(printAdjustDraft[spec.key] ?? 0);
+    const val = document.createElement('span');
+    val.className = 'print-adjust-value';
+    val.id = `print-adj-val-${spec.key}`;
+    val.textContent = String(printAdjustDraft[spec.key] ?? 0);
+    input.addEventListener('input', () => {
+      printAdjustDraft = {
+        ...(printAdjustDraft || getPrintAdjustments()),
+        [spec.key]: Number(input.value),
+      };
+      val.textContent = String(input.value);
+      schedulePrintPreviewRefresh();
+    });
+    row.append(label, input, val);
+    grid.appendChild(row);
+  }
+  grid.dataset.ready = '1';
+  syncPrintColorOptionChecks();
+}
+
+function togglePrintAdvancedPanel() {
+  const panel = $('print-advanced-panel');
+  const btn = $('btn-print-advanced');
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn?.classList.toggle('active', open);
+  if (open) {
+    const cfg = getConfig();
+    printAdjustEnabledDraft = cfg.printAdjustmentsEnabled !== false;
+    printAdjustPermanentDraft = cfg.printAdjustmentsPermanent !== false;
+    printAdjustDraft = { ...getPrintAdjustments() };
+    renderPrintAdjustControls();
+    setText($('print-adjust-status'), '');
+  }
+}
+
+function schedulePrintPreviewRefresh() {
+  if (printPreviewTimer) clearTimeout(printPreviewTimer);
+  printPreviewTimer = setTimeout(() => {
+    void refreshPrintPreviewWithAdjustments();
+  }, 180);
+}
+
+async function savePrintAdjustmentsPermanently() {
+  const adj = normalizeAdjustments(printAdjustDraft || getPrintAdjustments());
+  const enabled = printAdjustEnabledDraft !== false;
+  const permanent = printAdjustPermanentDraft !== false;
+
+  if (permanent) {
+    await saveConfig({
+      printAdjustments: adj,
+      printAdjustmentsEnabled: enabled,
+      printAdjustmentsPermanent: true,
+    });
+    printAdjustDraft = { ...adj };
+    setText(
+      $('print-adjust-status'),
+      enabled
+        ? 'Saved permanently — used for all future prints.'
+        : 'Saved permanently — color adjustments OFF for all future prints.'
+    );
+  } else {
+    // Keep permanent profile in config, but mark permanent flag off so future opens can stay temporary.
+    await saveConfig({
+      printAdjustmentsPermanent: false,
+      printAdjustmentsEnabled: enabled,
+    });
+    setText(
+      $('print-adjust-status'),
+      enabled
+        ? 'Applied to this print only (not saved for future prints).'
+        : 'Color adjustments off for this print.'
+    );
+  }
+  syncPrintColorOptionChecks();
+  await refreshPrintPreviewWithAdjustments();
+}
+
+async function resetPrintAdjustments() {
+  printAdjustDraft = { ...DEFAULT_PRINT_ADJUSTMENTS };
+  printAdjustEnabledDraft = true;
+  syncPrintAdjustValues();
+  setText($('print-adjust-status'), 'Reset to default bright-print profile.');
+  await refreshPrintPreviewWithAdjustments();
+}
+
+function onPrintColorOptionChange() {
+  const enabledEl = $('print-adj-enabled');
+  const permanentEl = $('print-adj-permanent');
+  printAdjustEnabledDraft = !!enabledEl?.checked;
+  printAdjustPermanentDraft = !!permanentEl?.checked;
+  syncPrintColorOptionChecks();
+  schedulePrintPreviewRefresh();
+  setText(
+    $('print-adjust-status'),
+    printAdjustEnabledDraft
+      ? printAdjustPermanentDraft
+        ? 'Will apply to this print. Save to keep for all prints.'
+        : 'Will apply to this print only.'
+      : 'Color adjustments disabled — original colors used.'
+  );
+}
 
 function finishPrintSession() {
+  setPrintAction(null);
+  rawPrintPngBase64 = null;
+  printAdjustDraft = null;
+  printAdjustEnabledDraft = true;
+  printAdjustPermanentDraft = true;
+  const panel = $('print-advanced-panel');
+  if (panel) panel.hidden = true;
+  $('btn-print-advanced')?.setAttribute('aria-expanded', 'false');
+  $('btn-print-advanced')?.classList.remove('active');
   if (printPageResolve) {
     printPageResolve({ ok: true });
     printPageResolve = null;
@@ -1588,36 +2105,101 @@ function loadPrintStripImage(pngBase64) {
   });
 }
 
+function applyPrintPreviewSizing(pageWidthIn, pageHeightIn) {
+  const screen = document.querySelector('.print-screen');
+  const target = $('print-target');
+  const img = $('print-strip-img');
+  if (screen && pageWidthIn > 0 && pageHeightIn > 0) {
+    screen.style.setProperty('--paper-ar-w', String(pageWidthIn));
+    screen.style.setProperty('--paper-ar-h', String(pageHeightIn));
+  }
+  if (target) {
+    target.style.width = '';
+    target.style.height = '';
+  }
+  if (img) {
+    img.style.width = '';
+    img.style.height = '';
+  }
+}
+
 /** In-app print page → system print dialog (format-aware). */
 async function openPrintPage(
   pngBase64,
-  { autoDialog = true, mode = 'strip', sheet = STRIP_PRINT_SHEET, returnPhase = Phase.IDLE } = {}
+  {
+    autoDialog = true,
+    mode = 'strip',
+    sheet = STRIP_PRINT_SHEET,
+    printKind = null,
+    returnPhase = Phase.IDLE,
+    printAction = null,
+  } = {}
 ) {
-  await loadPrintStripImage(pngBase64);
+  rawPrintPngBase64 = pngBase64;
+  const cfg = getConfig();
+  printAdjustEnabledDraft = cfg.printAdjustmentsEnabled !== false;
+  printAdjustPermanentDraft = cfg.printAdjustmentsPermanent !== false;
+  printAdjustDraft = { ...getPrintAdjustments() };
+  let colored = pngBase64;
+  if (printAdjustEnabledDraft !== false) {
+    colored = await applyPrintColorToPngBase64(pngBase64, printAdjustDraft);
+  }
+  await loadPrintStripImage(colored);
   printReturnPhase = returnPhase;
-  patchSession({ printMode: mode });
+  patchSession({ printMode: mode, pngBase64: colored });
+  if (printAction?.type === 'silent' && printAction.payload) {
+    printAction = {
+      ...printAction,
+      payload: { ...printAction.payload, pngBase64: colored },
+    };
+  }
+  setPrintAction(printAction);
+  renderPrintAdjustControls();
+  const panel = $('print-advanced-panel');
+  if (panel) panel.hidden = true;
+  $('btn-print-advanced')?.setAttribute('aria-expanded', 'false');
+  $('btn-print-advanced')?.classList.remove('active');
   const screen = document.querySelector('.print-screen');
   const title = $('print-screen-title');
   const hint = $('print-screen-hint');
+  let paperW = A4_PAGE_WIDTH_IN;
+  let paperH = A4_PAGE_HEIGHT_IN;
   try {
     if (mode === 'sheet' || mode === 'a4') {
       const sheetSpec = sheet || STRIP_PRINT_SHEET;
-      screen?.style?.setProperty('--paper-w', `${sheetSpec.widthIn}in`);
-      screen?.style?.setProperty('--paper-h', `${sheetSpec.heightIn}in`);
+      screen?.style?.setProperty('--paper-w', `${A4_PAGE_WIDTH_IN}in`);
+      screen?.style?.setProperty('--paper-h', `${A4_PAGE_HEIGHT_IN}in`);
+      screen?.style?.setProperty('--sheet-w', `${A4_PAGE_WIDTH_IN}in`);
+      screen?.style?.setProperty('--sheet-h', `${A4_PAGE_HEIGHT_IN}in`);
       screen?.setAttribute('data-print-mode', 'sheet');
-      const kind = sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip';
-      if (title) title.textContent = `Print ${kind} sheet`;
+      const kind =
+        printKind ||
+        (sheetSpec === POLAROID_PRINT_SHEET
+          ? 'polaroid'
+          : sheetSpec === LANDSCAPE_SHEET_PRINT_SHEET
+            ? 'sheet'
+            : 'strip');
+      const maxItems =
+        kind === 'polaroid'
+          ? MAX_POLAROID_SHEET_ITEMS
+          : kind === 'sheet'
+            ? MAX_LANDSCAPE_SHEET_ITEMS
+            : MAX_STRIP_SHEET_ITEMS;
+      const titleKind =
+        kind === 'sheet' ? '4×6 / four-up' : kind === 'polaroid' ? 'polaroid' : 'strip';
+      if (title) title.textContent = `Print ${titleKind} sheet`;
       if (hint) {
-        hint.innerHTML = `Choose your printer. Paper: <strong>${sheetSizeLabel(sheetSpec)}</strong> · up to ${MAX_SHEET_ITEMS} ${kind}s.`;
+        hint.innerHTML = `Review this preview first, then print. Paper: <strong>${sheetSizeLabel(sheetSpec, kind)}</strong> · up to ${maxItems} items.`;
       }
       const img = $('print-strip-img');
       if (img) {
-        img.width = Math.round(sheetSpec.widthIn * 300);
-        img.height = Math.round(sheetSpec.heightIn * 300);
+        img.width = Math.round(A4_PAGE_WIDTH_IN * 300);
+        img.height = Math.round(A4_PAGE_HEIGHT_IN * 300);
         img.alt = `${kind} print sheet ready to print`;
       }
+      paperW = A4_PAGE_WIDTH_IN;
+      paperH = A4_PAGE_HEIGHT_IN;
     } else {
-      const cfg = getConfig();
       const session = getSession();
       const { pageWidthIn: pw, pageHeightIn: ph } = singlePrintPageInches(
         session.formatId || '2x6',
@@ -1625,10 +2207,12 @@ async function openPrintPage(
       );
       screen?.style?.setProperty('--paper-w', `${pw}in`);
       screen?.style?.setProperty('--paper-h', `${ph}in`);
+      screen?.style?.setProperty('--sheet-w', `${pw}in`);
+      screen?.style?.setProperty('--sheet-h', `${ph}in`);
       screen?.setAttribute('data-print-mode', 'strip');
       if (title) title.textContent = 'Print your strip';
       if (hint) {
-        hint.innerHTML = `Choose your printer in the dialog. Paper: <strong>${(pw * 2.54).toFixed(2)}×${(ph * 2.54).toFixed(2)} cm</strong> landscape cell.`;
+        hint.innerHTML = `Review the preview, then print. Paper: <strong>${(pw * 2.54).toFixed(2)}×${(ph * 2.54).toFixed(2)} cm</strong>.`;
       }
       const img = $('print-strip-img');
       if (img) {
@@ -1636,11 +2220,16 @@ async function openPrintPage(
         img.height = Math.round(ph * 300);
         img.alt = 'Photo strip ready to print';
       }
+      paperW = pw;
+      paperH = ph;
     }
   } catch {
     /* optional */
   }
   go(Phase.PRINTING);
+  requestAnimationFrame(() => {
+    applyPrintPreviewSizing(paperW, paperH);
+  });
   return new Promise((resolve) => {
     printPageResolve = resolve;
     const runDialog = () => {
@@ -1679,30 +2268,39 @@ async function doPrint() {
       }
     }
 
-    let result;
     const useSilentKiosk =
       cfg.silentPrint === true && window.photobooth?.printStrip;
     if (useSilentKiosk) {
       const copies = Number(getSession().printCopies) || cfg.copies || 1;
       const { pageWidthIn, pageHeightIn } = singlePrintPageInches(session.formatId, cfg);
-      result = await window.photobooth.printStrip({
-        pngBase64,
-        printerName: cfg.printerName,
-        copies,
-        widthPx: size.width,
-        heightPx: size.height,
-        pageWidthIn,
-        pageHeightIn,
+      setText($('customize-status'), 'Print preview ready. Click Print now when alignment looks right.');
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'strip',
+        returnPhase: Phase.IDLE,
+        printAction: {
+          type: 'silent',
+          buttonLabel: 'Print now',
+          statusTarget: 'customize-status',
+          payload: {
+            pngBase64,
+            printerName: cfg.printerName,
+            copies,
+            widthPx: size.width,
+            heightPx: size.height,
+            pageWidthIn,
+            pageHeightIn,
+          },
+        },
       });
-      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
-      setText($('customize-status'), 'Printed — thank you!');
-      await stopSetupPreviewCompletely();
-      clearStripPreview();
-      clearAll(cfg.defaults);
-      go(Phase.IDLE, { force: true });
     } else {
       setText($('customize-status'), 'Opening print page…');
-      await openPrintPage(pngBase64, { autoDialog: true, mode: 'strip', returnPhase: Phase.IDLE });
+      await openPrintPage(pngBase64, {
+        autoDialog: false,
+        mode: 'strip',
+        returnPhase: Phase.IDLE,
+        printAction: { type: 'dialog', buttonLabel: 'Open print dialog' },
+      });
     }
   } catch (err) {
     go(Phase.CUSTOMIZE, { force: true });
@@ -1885,21 +2483,25 @@ async function testPrint() {
 }
 
 /* ——— Bindings ——— */
+function bindControl(id, event, handler) {
+  const el = $(id);
+  if (!el) {
+    console.warn(`[photobooth] Missing #${id} — control not wired.`);
+    return;
+  }
+  el.addEventListener(event, handler);
+}
+
 function bind() {
-  $('btn-start').addEventListener('click', () => openSetup());
+  bindControl('btn-start', 'click', () => openSetup());
   $('btn-open-album')?.addEventListener('click', () => openAlbum());
-  $('btn-setup-cancel').addEventListener('click', async () => {
+  bindControl('btn-setup-cancel', 'click', async () => {
     await stopSetupPreviewCompletely();
     clearAll(getConfig().defaults);
     go(Phase.IDLE, { force: true });
   });
   $('setup-mirror').addEventListener('change', (e) => {
     patchSession({ mirrorPreview: e.target.checked });
-    syncSetupPreviewVideos();
-  });
-  $('setup-confetti-overlap')?.addEventListener('change', (e) => {
-    patchSession({ confettiOverlap: e.target.checked });
-    void renderOrientationPreview(getSession().photoCount);
     syncSetupPreviewVideos();
   });
   $('setup-camera')?.addEventListener('change', async (e) => {
@@ -1943,7 +2545,41 @@ function bind() {
     patchSession({ safeBounds: e.target.checked });
     scheduleRecompose();
   });
-  $('btn-print-dialog')?.addEventListener('click', () => window.print());
+  $('btn-print-dialog')?.addEventListener('click', async () => {
+    const action = pendingPrintAction;
+    if (!action || action.type === 'dialog') {
+      // Ensure latest color profile is baked into the on-screen print image.
+      if (rawPrintPngBase64) await refreshPrintPreviewWithAdjustments();
+      window.print();
+      return;
+    }
+    const btn = $('btn-print-dialog');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Printing…';
+    }
+    try {
+      if (rawPrintPngBase64) await refreshPrintPreviewWithAdjustments();
+      const result = await window.photobooth.printStrip(pendingPrintAction.payload);
+      if (result && result.ok === false) throw new Error(result.error || 'Print failed');
+      if (action.statusTarget) setText($(action.statusTarget), 'Printed — thank you!');
+      finishPrintSession();
+    } catch (err) {
+      if (action.statusTarget) setText($(action.statusTarget), err.message || 'Print failed');
+      const targetPhase = printReturnPhase === Phase.ALBUM ? Phase.ALBUM : Phase.CUSTOMIZE;
+      go(targetPhase, { force: true });
+    } finally {
+      if (btn && getPhase() === Phase.PRINTING) {
+        btn.disabled = false;
+        btn.textContent = action.buttonLabel || 'Print';
+      }
+    }
+  });
+  $('btn-print-advanced')?.addEventListener('click', () => togglePrintAdvancedPanel());
+  $('btn-print-adjust-save')?.addEventListener('click', () => void savePrintAdjustmentsPermanently());
+  $('btn-print-adjust-reset')?.addEventListener('click', () => void resetPrintAdjustments());
+  $('print-adj-enabled')?.addEventListener('change', () => onPrintColorOptionChange());
+  $('print-adj-permanent')?.addEventListener('change', () => onPrintColorOptionChange());
   $('btn-print-done')?.addEventListener('click', () => finishPrintSession());
   window.addEventListener('afterprint', () => {
     if (getPhase() === Phase.PRINTING && printPageResolve) {
@@ -2087,16 +2723,22 @@ function applyEventInfo() {
 }
 
 async function init() {
-  bind();
   try {
+    bind();
     await loadBootstrap();
     clearTemplateCache();
     applyEventInfo();
+    clearAll(getConfig().defaults);
+    showPhase(Phase.IDLE);
   } catch (err) {
-    console.error(err);
+    console.error('Photobooth init failed:', err);
+    showPhase(Phase.IDLE);
+    const hint = document.querySelector('[data-phase="idle"] .hint');
+    if (hint) {
+      hint.textContent =
+        'Something went wrong loading the app. Press F12 for details, then refresh the page.';
+    }
   }
-  clearAll(getConfig().defaults);
-  showPhase(Phase.IDLE);
 }
 
 init();

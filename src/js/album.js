@@ -3,10 +3,16 @@
  * localStorage fallback in browser preview.
  */
 
+import { composeSize } from './config.js';
+
 export const ALBUM_STORAGE_KEY = 'photobooth-album';
-export const MAX_SHEET_ITEMS = 4;
+export const MAX_STRIP_SHEET_ITEMS = 4;
+export const MAX_POLAROID_SHEET_ITEMS = 8;
+export const MAX_LANDSCAPE_SHEET_ITEMS = 4;
+/** Highest selectable count across A4 print sheet types. */
+export const MAX_SHEET_ITEMS = MAX_POLAROID_SHEET_ITEMS;
 /** @deprecated */
-export const MAX_A4_STRIPS = MAX_SHEET_ITEMS;
+export const MAX_A4_STRIPS = MAX_STRIP_SHEET_ITEMS;
 export const MAX_ALBUM_ITEMS = 40;
 
 function useDiskAlbum() {
@@ -144,32 +150,28 @@ export async function makeAlbumThumb(pngBase64, maxHeight = 280) {
 }
 
 /**
- * Shrink a composed strip for album storage.
- * 2×6″ portraits normalize to 600×1800 @ 300dpi; other formats keep aspect.
+ * Fit a composed strip to the format canvas (cover) for clean album storage.
  */
-export async function normalizeStripForAlbum(pngBase64, targetW = 600, targetH = 1800) {
+export async function normalizeStripForAlbum(pngBase64, formatId = '2x6', cfg = null) {
+  const size = composeSize(formatId, cfg || undefined);
+  const targetW = size.baseWidthPx;
+  const targetH = size.baseHeightPx;
   const img = await loadPngBase64(pngBase64);
-  const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
-  const targetRatio = targetW / targetH;
-  let w = targetW;
-  let h = targetH;
-  if (Math.abs(ratio - targetRatio) > 0.08) {
-    const maxEdge = Math.max(targetW, targetH);
-    if (img.naturalWidth >= img.naturalHeight) {
-      w = Math.min(img.naturalWidth, maxEdge * 2);
-      h = Math.max(1, Math.round(w / ratio));
-    } else {
-      h = Math.min(img.naturalHeight, maxEdge);
-      w = Math.max(1, Math.round(h * ratio));
-    }
-  }
-  if (img.naturalWidth === w && img.naturalHeight === h) {
+  if (img.naturalWidth === targetW && img.naturalHeight === targetH) {
     return pngBase64;
   }
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  c.width = targetW;
+  c.height = targetH;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#050b28';
+  ctx.fillRect(0, 0, targetW, targetH);
+  const sw = img.naturalWidth;
+  const sh = img.naturalHeight;
+  const scale = Math.max(targetW / sw, targetH / sh);
+  const rw = sw * scale;
+  const rh = sh * scale;
+  ctx.drawImage(img, (targetW - rw) / 2, (targetH - rh) / 2, rw, rh);
   return c.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 

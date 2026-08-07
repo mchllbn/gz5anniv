@@ -101,7 +101,15 @@ async function printHtmlSilent({
   }
 }
 
-function stripPrintHtml(dataUrl, pageWidthIn, pageHeightIn) {
+function stripPrintHtml(
+  dataUrl,
+  pageWidthIn,
+  pageHeightIn,
+  { contentWidthIn = pageWidthIn, contentHeightIn = pageHeightIn, centerOnPage = false } = {}
+) {
+  const wrapStyle = centerOnPage
+    ? `display:flex;align-items:center;justify-content:center;`
+    : '';
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -113,13 +121,14 @@ function stripPrintHtml(dataUrl, pageWidthIn, pageHeightIn) {
     padding: 0;
     width: ${pageWidthIn}in;
     height: ${pageHeightIn}in;
-    background: #000;
+    background: #fff;
     overflow: hidden;
+    ${wrapStyle}
   }
   img {
     display: block;
-    width: ${pageWidthIn}in;
-    height: ${pageHeightIn}in;
+    width: ${contentWidthIn}in;
+    height: ${contentHeightIn}in;
     object-fit: fill;
   }
 </style>
@@ -139,6 +148,9 @@ async function printStrip({
   heightPx,
   pageWidthIn,
   pageHeightIn,
+  contentWidthIn,
+  contentHeightIn,
+  centerOnPage = false,
   mainWindow,
 }) {
   const dataUrl = `data:image/png;base64,${pngBase64}`;
@@ -147,7 +159,11 @@ async function printStrip({
   const pw = pageWidthIn ?? (Math.abs(wIn - 2) < 0.05 ? 2 : wIn);
   const ph = pageHeightIn ?? (Math.abs(hIn - 6) < 0.05 ? 6 : hIn);
   return printHtmlSilent({
-    html: stripPrintHtml(dataUrl, pw, ph),
+    html: stripPrintHtml(dataUrl, pw, ph, {
+      contentWidthIn,
+      contentHeightIn,
+      centerOnPage,
+    }),
     printerName,
     copies,
     pageWidthIn: pw,
