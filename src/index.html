@@ -241,38 +241,32 @@
       <!-- ALBUM — pick up to 4 for one landscape cut sheet -->
       <section class="screen album-screen" data-phase="album" aria-label="Photo strip album">
         <div class="album-page">
-          <header class="panel-head panel-head-inline">
-            <div class="panel-head-line">
-              <h2>Album</h2>
-              <span class="panel-head-sep" aria-hidden="true">·</span>
-              <p>Select up to 4 items for one A4 print sheet · cards match each format size</p>
+          <header class="album-chrome album-header">
+            <div class="album-header-copy">
+              <h2 class="album-title">Album</h2>
+              <p class="album-subtitle">One format per A4 print: <strong>1–4 strips</strong>, <strong>1–4 sheets</strong> (4×6 or four-up), or <strong>1–8 polaroids</strong></p>
             </div>
-            <img
-              class="panel-logo agency-logo panel-head-logo-end"
-              data-logo="agency"
-              src="./assets/templates/gz5-logo.png"
-              alt="Golden Z-5 Security & Investigation Agency, Inc."
-              width="200"
-              height="200"
-            />
+            <div class="album-toolbar">
+              <p id="album-selection-meta" class="album-selection-meta" aria-live="polite">0 of 4 selected</p>
+              <div class="album-toolbar-actions">
+                <button type="button" id="btn-album-clear-selection" class="btn btn-ghost btn-sm">Clear</button>
+                <button type="button" id="btn-album-delete-selected" class="btn btn-ghost btn-sm">Delete</button>
+              </div>
+            </div>
           </header>
 
-          <div class="album-toolbar">
-            <p id="album-selection-meta" class="album-selection-meta" aria-live="polite">0 of 4 selected</p>
-            <div class="album-toolbar-actions">
-              <button type="button" id="btn-album-clear-selection" class="btn btn-ghost btn-sm">Clear selection</button>
-              <button type="button" id="btn-album-delete-selected" class="btn btn-ghost btn-sm">Delete selected</button>
+          <div class="album-main">
+            <div id="album-grid" class="album-grid" role="list" aria-label="Saved photo strips"></div>
+            <p id="album-empty" class="album-empty" hidden>No strips yet. Capture a session and tap <strong>Save to album</strong>.</p>
+          </div>
+
+          <footer class="album-footer">
+            <div class="actions album-actions">
+              <button type="button" id="btn-album-back" class="btn btn-ghost">Back</button>
+              <button type="button" id="btn-album-print" class="btn btn-primary btn-xl" disabled>Print sheet</button>
             </div>
-          </div>
-
-          <div id="album-grid" class="album-grid" role="list" aria-label="Saved photo strips"></div>
-          <p id="album-empty" class="album-empty" hidden>No strips yet. Capture a session and tap <strong>Save to album</strong>.</p>
-
-          <div class="actions album-actions">
-            <button type="button" id="btn-album-back" class="btn btn-ghost">Back</button>
-            <button type="button" id="btn-album-print" class="btn btn-primary btn-xl" disabled>Print sheet</button>
-          </div>
-          <p id="album-status" class="status" aria-live="polite"></p>
+            <p id="album-status" class="status" aria-live="polite"></p>
+          </footer>
         </div>
       </section>
 

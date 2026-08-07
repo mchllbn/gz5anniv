@@ -21,6 +21,12 @@ export function cmToIn(cm) {
   return cm / CM_PER_IN;
 }
 
+export const MAX_STRIP_SHEET_ITEMS = 4;
+export const MAX_POLAROID_SHEET_ITEMS = 8;
+export const MAX_LANDSCAPE_SHEET_ITEMS = 4;
+/** Highest selectable count across sheet types. */
+export const MAX_SHEET_ITEMS = MAX_POLAROID_SHEET_ITEMS;
+
 /** Landscape cut sheet — four 2×6″ strips (20.17 × 6.72 cm). */
 export const STRIP_PRINT_SHEET = Object.freeze({
   dpi: 300,
@@ -35,12 +41,12 @@ export const STRIP_PRINT_SHEET = Object.freeze({
   },
 });
 
-/** Landscape cut sheet — four polaroids (10.85 × 6.72 cm). */
+/** Landscape cut sheet — legacy polaroid pack size (unused for A4 grid). */
 export const POLAROID_PRINT_SHEET = Object.freeze({
   dpi: 300,
   widthCm: 10.85,
   heightCm: 6.72,
-  maxItems: 4,
+  maxItems: 8,
   get widthIn() {
     return cmToIn(this.widthCm);
   },
@@ -49,10 +55,25 @@ export const POLAROID_PRINT_SHEET = Object.freeze({
   },
 });
 
+/** A4 portrait — 2×2 grid of 6×4 landscape sheets (4×6 / four-up). */
+export const LANDSCAPE_SHEET_PRINT_SHEET = Object.freeze({
+  dpi: 300,
+  maxItems: MAX_LANDSCAPE_SHEET_ITEMS,
+  widthCm: 21,
+  heightCm: 29.7,
+  get widthIn() {
+    return cmToIn(this.widthCm);
+  },
+  get heightIn() {
+    return cmToIn(this.heightCm);
+  },
+});
+
+/** @deprecated alias — use LANDSCAPE_SHEET_PRINT_SHEET */
+export const SHEET_PRINT_SHEET = LANDSCAPE_SHEET_PRINT_SHEET;
+
 /** @deprecated use STRIP_PRINT_SHEET */
 export const A4_LANDSCAPE = STRIP_PRINT_SHEET;
-
-export const MAX_SHEET_ITEMS = STRIP_PRINT_SHEET.maxItems;
 
 export function printSheetCanvasSize(sheet = STRIP_PRINT_SHEET, dpi = sheet.dpi) {
   return {
@@ -97,6 +118,15 @@ function isStripFormatId(formatId) {
   return String(formatId || '').includes('2x6');
 }
 
+function isPolaroidFormatId(formatId) {
+  return String(formatId || '').includes('polaroid');
+}
+
+function isLandscapeSheetFormatId(formatId) {
+  const id = String(formatId || '').toLowerCase();
+  return id === '4x6' || id === '6x4-four';
+}
+
 /** Slot width ÷ height on the A4 page for this saved item. */
 function itemPageAspect(formatId, img, cfg = getConfig()) {
   if (isStripFormatId(formatId)) {
@@ -129,19 +159,286 @@ function drawImageContain(ctx, img, x, y, w, h) {
 }
 
 /**
+ * A4 portrait sheet — up to four 2×6″ strips laid horizontal in equal rows.
+ * Matches the cut template: stacked landscape slots with dashed cut guides.
+ */
+export function composeStripA4Sheet(images, opts = {}) {
+  const list = (images || []).slice(0, 4);
+  if (!list.length) throw new Error('Select at least one 2×6 strip to print.');
+
+  const dpi = opts.dpi || 300;
+  const width = Math.round(A4_PORTRAIT_WIDTH_IN * dpi);
+  const height = Math.round(A4_PORTRAIT_HEIGHT_IN * dpi);
+  const margin = Math.round((opts.marginIn ?? 0.35) * dpi);
+  const gap = Math.round((opts.gapIn ?? 0.18) * dpi);
+  const rows = 4;
+  const usableW = width - margin * 2;
+  const usableH = height - margin * 2;
+  // Rotated 2×6″ → 6″ wide × 2″ tall (3:1)
+  const stripAr = 3;
+  let slotH = Math.floor((usableH - gap * (rows - 1)) / rows);
+  let slotW = Math.floor(slotH * stripAr);
+  if (slotW > usableW) {
+    slotW = usableW;
+    slotH = Math.floor(slotW / stripAr);
+  }
+  const stackH = slotH * rows + gap * (rows - 1);
+  const startX = Math.round((width - slotW) / 2);
+  let startY = margin + Math.round((usableH - stackH) / 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = opts.background || '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  const cutGuides = opts.cutGuides !== false;
+  for (let i = 0; i < rows; i++) {
+    const y = startY + i * (slotH + gap);
+    const img = list[i];
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(startX, y, slotW, slotH);
+      ctx.clip();
+      drawImageCoverRotated90(ctx, img, startX, y, slotW, slotH);
+      ctx.restore();
+    }
+    if (cutGuides) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(40, 40, 40, 0.55)';
+      ctx.lineWidth = Math.max(1, Math.round(dpi / 220));
+      ctx.setLineDash([Math.round(dpi * 0.04), Math.round(dpi * 0.035)]);
+      ctx.strokeRect(startX + 0.5, y + 0.5, slotW - 1, slotH - 1);
+      ctx.restore();
+    }
+  }
+
+  return canvas;
+}
+
+/**
+ * A4 portrait sheet — up to eight polaroids in a fixed 2×4 grid.
+ * Portrait slots keep the 4×6 (2:3) aspect, flush-packed with dashed cut guides
+ * inside a printer “danger zone” margin.
+ */
+export function composePolaroidA4Sheet(images, opts = {}) {
+  const list = (images || []).slice(0, MAX_POLAROID_SHEET_ITEMS);
+  if (!list.length) throw new Error('Select at least one polaroid to print.');
+
+  const dpi = opts.dpi || 300;
+  const width = Math.round(A4_PORTRAIT_WIDTH_IN * dpi);
+  const height = Math.round(A4_PORTRAIT_HEIGHT_IN * dpi);
+  // ~10 mm non-print / trim margin (danger zone)
+  const margin = Math.round((opts.marginIn ?? 0.4) * dpi);
+  const cols = 2;
+  const rows = 4;
+  const polaroidAr = 4 / 6; // width ÷ height
+
+  const usableW = width - margin * 2;
+  const usableH = height - margin * 2;
+
+  // Flush slots — no gutters; dashed lines are cut guides only
+  let slotW = Math.floor(usableW / cols);
+  let slotH = Math.floor(slotW / polaroidAr);
+  if (slotH * rows > usableH) {
+    slotH = Math.floor(usableH / rows);
+    slotW = Math.floor(slotH * polaroidAr);
+  }
+  const gridW = slotW * cols;
+  const gridH = slotH * rows;
+  const startX = Math.round((width - gridW) / 2);
+  const startY = Math.round((height - gridH) / 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = opts.background || '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  if (opts.dangerZone === true) {
+    ctx.fillStyle = 'rgba(255, 170, 170, 0.28)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = opts.background || '#ffffff';
+    ctx.fillRect(startX, startY, gridW, gridH);
+  }
+
+  for (let i = 0; i < cols * rows; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = startX + col * slotW;
+    const y = startY + row * slotH;
+    const img = list[i];
+    if (!img) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, slotW, slotH);
+    ctx.clip();
+    drawImageCover(ctx, img, x, y, slotW, slotH);
+    ctx.restore();
+  }
+
+  const cutGuides = opts.cutGuides !== false;
+  if (cutGuides) {
+    const lw = Math.max(1, Math.round(dpi / 220));
+    const dash = [Math.round(dpi * 0.04), Math.round(dpi * 0.035)];
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(40, 40, 40, 0.55)';
+    ctx.lineWidth = lw;
+    ctx.setLineDash(dash);
+    ctx.strokeRect(startX + 0.5, startY + 0.5, gridW - 1, gridH - 1);
+    for (let c = 1; c < cols; c++) {
+      const x = startX + c * slotW;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, startY);
+      ctx.lineTo(x + 0.5, startY + gridH);
+      ctx.stroke();
+    }
+    for (let r = 1; r < rows; r++) {
+      const y = startY + r * slotH;
+      ctx.beginPath();
+      ctx.moveTo(startX, y + 0.5);
+      ctx.lineTo(startX + gridW, y + 0.5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  return canvas;
+}
+
+/**
+ * A4 portrait — up to four 6×4 landscape sheets in a fixed 2×2 grid.
+ * Fills down the left column first (then right), matching the cut template.
+ * Formats: 4×6 sheet and 6×4 four-up (same 3:2 landscape aspect).
+ */
+export function composeLandscapeSheetA4Sheet(images, opts = {}) {
+  const list = (images || []).slice(0, MAX_LANDSCAPE_SHEET_ITEMS);
+  if (!list.length) throw new Error('Select at least one 4×6 / four-up sheet to print.');
+
+  const dpi = opts.dpi || 300;
+  const width = Math.round(A4_PORTRAIT_WIDTH_IN * dpi);
+  const height = Math.round(A4_PORTRAIT_HEIGHT_IN * dpi);
+  const margin = Math.round((opts.marginIn ?? 0.4) * dpi);
+  const cols = 2;
+  const rows = 2;
+  const landscapeAr = 6 / 4; // width ÷ height (6×4″)
+
+  const usableW = width - margin * 2;
+  const usableH = height - margin * 2;
+
+  let slotW = Math.floor(usableW / cols);
+  let slotH = Math.floor(slotW / landscapeAr);
+  if (slotH * rows > usableH) {
+    slotH = Math.floor(usableH / rows);
+    slotW = Math.floor(slotH * landscapeAr);
+  }
+  const gridW = slotW * cols;
+  const gridH = slotH * rows;
+  const startX = Math.round((width - gridW) / 2);
+  const startY = Math.round((height - gridH) / 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = opts.background || '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  if (opts.dangerZone === true) {
+    ctx.fillStyle = 'rgba(255, 170, 170, 0.28)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = opts.background || '#ffffff';
+    ctx.fillRect(startX, startY, gridW, gridH);
+  }
+
+  const slotCount = cols * rows;
+  for (let i = 0; i < slotCount; i++) {
+    const col = Math.floor(i / rows);
+    const row = i % rows;
+    const x = startX + col * slotW;
+    const y = startY + row * slotH;
+    const img = list[i];
+    if (!img) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, slotW, slotH);
+    ctx.clip();
+    drawImageCover(ctx, img, x, y, slotW, slotH);
+    ctx.restore();
+  }
+
+  const cutGuides = opts.cutGuides !== false;
+  if (cutGuides) {
+    const lw = Math.max(1, Math.round(dpi / 220));
+    const dash = [Math.round(dpi * 0.04), Math.round(dpi * 0.035)];
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(40, 40, 40, 0.55)';
+    ctx.lineWidth = lw;
+    ctx.setLineDash(dash);
+    ctx.strokeRect(startX + 0.5, startY + 0.5, gridW - 1, gridH - 1);
+    for (let c = 1; c < cols; c++) {
+      const x = startX + c * slotW;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, startY);
+      ctx.lineTo(x + 0.5, startY + gridH);
+      ctx.stroke();
+    }
+    for (let r = 1; r < rows; r++) {
+      const y = startY + r * slotH;
+      ctx.beginPath();
+      ctx.moveTo(startX, y + 0.5);
+      ctx.lineTo(startX + gridW, y + 0.5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  return canvas;
+}
+
+/**
  * @param {HTMLImageElement[]|HTMLCanvasElement[]} images
- * @param {{ sheet?: typeof STRIP_PRINT_SHEET, maxItems?: number, dpi?: number, gapIn?: number, cutGuides?: boolean, background?: string }} opts
+ * @param {{ sheet?: typeof STRIP_PRINT_SHEET, maxItems?: number, dpi?: number, gapIn?: number, cutGuides?: boolean, background?: string, formatIds?: string[], stripA4?: boolean, polaroidA4?: boolean, landscapeSheetA4?: boolean }} opts
  */
 export function composePrintSheet(images, opts = {}) {
+  const formatIds = opts.formatIds || [];
+  const allStrips =
+    images?.length > 0 &&
+    (opts.stripA4 === true ||
+      (formatIds.length === images.length && formatIds.every((id) => isStripFormatId(id))));
+  if (allStrips && opts.stripA4 !== false && opts.polaroidA4 !== true) {
+    return composeStripA4Sheet(images, opts);
+  }
+  const allPolaroids =
+    images?.length > 0 &&
+    (opts.polaroidA4 === true ||
+      (formatIds.length === images.length && formatIds.every((id) => isPolaroidFormatId(id))));
+  if (allPolaroids && opts.polaroidA4 !== false && opts.landscapeSheetA4 !== true) {
+    return composePolaroidA4Sheet(images, opts);
+  }
+  const allLandscapeSheets =
+    images?.length > 0 &&
+    (opts.landscapeSheetA4 === true ||
+      (formatIds.length === images.length &&
+        formatIds.every((id) => isLandscapeSheetFormatId(id))));
+  if (allLandscapeSheets && opts.landscapeSheetA4 !== false) {
+    return composeLandscapeSheetA4Sheet(images, opts);
+  }
+
   const sheet = opts.sheet || STRIP_PRINT_SHEET;
   const max = opts.maxItems ?? sheet.maxItems;
   let list = (images || []).slice(0, max);
-  let formatIds = (opts.formatIds || []).slice(0, list.length);
+  let ids = formatIds.slice(0, list.length);
   if (!list.length) throw new Error('Select at least one item to print.');
 
   if (list.length === 1) {
     list = [list[0], list[0]];
-    formatIds = [formatIds[0] || '', formatIds[0] || ''];
+    ids = [ids[0] || '', ids[0] || ''];
   }
 
   const cfg = getConfig();
@@ -155,10 +452,10 @@ export function composePrintSheet(images, opts = {}) {
   const usableH = height - margin * 2;
 
   const slots = list.map((img, i) => {
-    const ar = itemPageAspect(formatIds[i] || '', img, cfg);
+    const ar = itemPageAspect(ids[i] || '', img, cfg);
     let slotW = usableW;
     let slotH = Math.max(1, Math.round(slotW / ar));
-    return { img, formatId: formatIds[i] || '', slotW, slotH, ar };
+    return { img, formatId: ids[i] || '', slotW, slotH, ar };
   });
 
   let totalH = slots.reduce((sum, s) => sum + s.slotH, 0) + gap * (count - 1);
@@ -254,13 +551,21 @@ export async function composeStrip(shotCanvases, opts = {}) {
     }
   }
 
+  const softFrames = template.softSlotFrames === true;
+  // Bleed under frame lips so slot rounding never leaves a hairline gap
+  const frameBleed = Math.max(1, Math.round((softFrames ? 1.5 : 1) * scale));
+
   const drawPhotoInSlot = (slot, src) => {
     const filtered = applyFilterToCanvas(src, filterId, opts.adjustments);
+    const x = slot.x - frameBleed;
+    const y = slot.y - frameBleed;
+    const w = slot.w + frameBleed * 2;
+    const h = slot.h + frameBleed * 2;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(slot.x, slot.y, slot.w, slot.h);
+    ctx.rect(x, y, w, h);
     ctx.clip();
-    drawCover(ctx, filtered, slot.x, slot.y, slot.w, slot.h);
+    drawCover(ctx, filtered, x, y, w, h);
     ctx.restore();
     filtered.width = 0;
     filtered.height = 0;

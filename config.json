@@ -26,6 +26,21 @@
   },
   "formats": [
     {
+      "id": "4x6-polaroid",
+      "label": "4×6 Polaroid",
+      "physicalSizeInches": {
+        "width": 4,
+        "height": 6
+      },
+      "canvasPx": {
+        "width": 1200,
+        "height": 1800
+      },
+      "allowedPhotoCounts": [
+        1
+      ]
+    },
+    {
       "id": "2x6",
       "label": "2x6 Strip",
       "physicalSizeInches": {
@@ -53,21 +68,6 @@
       },
       "allowedPhotoCounts": [
         3
-      ]
-    },
-    {
-      "id": "4x6-polaroid",
-      "label": "4×6 Polaroid",
-      "physicalSizeInches": {
-        "width": 4,
-        "height": 6
-      },
-      "canvasPx": {
-        "width": 1200,
-        "height": 1800
-      },
-      "allowedPhotoCounts": [
-        1
       ]
     },
     {
@@ -149,22 +149,22 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 34,
-          "y": 30,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 26,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 446,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 449,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 862,
-          "w": 532,
-          "h": 390
+          "x": 28,
+          "y": 872,
+          "w": 544,
+          "h": 411
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-blue-3.png",
@@ -261,22 +261,22 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 40,
-          "y": 40,
-          "w": 653,
-          "h": 538
+          "x": 36,
+          "y": 36,
+          "w": 656,
+          "h": 544
         },
         {
-          "x": 737,
-          "y": 40,
-          "w": 1023,
-          "h": 538
+          "x": 732,
+          "y": 36,
+          "w": 1032,
+          "h": 544
         },
         {
-          "x": 737,
-          "y": 622,
-          "w": 1023,
-          "h": 538
+          "x": 732,
+          "y": 620,
+          "w": 1032,
+          "h": 544
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-blue-4x6-3.png",
@@ -313,28 +313,28 @@
       "underfillColor": "#050b28",
       "slots": [
         {
-          "x": 671,
-          "y": 48,
-          "w": 1081,
-          "h": 593
+          "x": 664,
+          "y": 40,
+          "w": 1096,
+          "h": 604
         },
         {
-          "x": 49,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "x": 41,
+          "y": 684,
+          "w": 546,
+          "h": 476
         },
         {
-          "x": 631,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "x": 627,
+          "y": 684,
+          "w": 546,
+          "h": 476
         },
         {
           "x": 1213,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "y": 684,
+          "w": 546,
+          "h": 476
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-6x4.png",
@@ -351,22 +351,22 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 34,
-          "y": 30,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 26,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 446,
-          "w": 532,
-          "h": 392
+          "x": 28,
+          "y": 449,
+          "w": 544,
+          "h": 409
         },
         {
-          "x": 34,
-          "y": 862,
-          "w": 532,
-          "h": 390
+          "x": 28,
+          "y": 872,
+          "w": 544,
+          "h": 411
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\strip-gold-3.png",
@@ -382,22 +382,22 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 40,
-          "y": 40,
-          "w": 653,
-          "h": 538
+          "x": 36,
+          "y": 36,
+          "w": 656,
+          "h": 544
         },
         {
-          "x": 737,
-          "y": 40,
-          "w": 1023,
-          "h": 538
+          "x": 732,
+          "y": 36,
+          "w": 1032,
+          "h": 544
         },
         {
-          "x": 737,
-          "y": 622,
-          "w": 1023,
-          "h": 538
+          "x": 732,
+          "y": 620,
+          "w": 1032,
+          "h": 544
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-gold-4x6-3.png",
@@ -434,28 +434,28 @@
       "underfillColor": "#d29e34",
       "slots": [
         {
-          "x": 671,
-          "y": 48,
-          "w": 1081,
-          "h": 593
+          "x": 664,
+          "y": 40,
+          "w": 1096,
+          "h": 604
         },
         {
-          "x": 49,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "x": 41,
+          "y": 684,
+          "w": 546,
+          "h": 476
         },
         {
-          "x": 631,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "x": 627,
+          "y": 684,
+          "w": 546,
+          "h": 476
         },
         {
           "x": 1213,
-          "y": 685,
-          "w": 538,
-          "h": 467
+          "y": 684,
+          "w": 546,
+          "h": 476
         }
       ],
       "_absPath": "C:\\docker-projects\\try\\photobooth\\assets\\templates\\sheet-four-gold-6x4.png",

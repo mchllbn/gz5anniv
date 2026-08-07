@@ -51,8 +51,12 @@ import {
   canvasToPngBase64,
   drawPreview,
   composePrintSheet,
+  composeStripA4Sheet,
+  composePolaroidA4Sheet,
+  composeLandscapeSheetA4Sheet,
   STRIP_PRINT_SHEET,
   POLAROID_PRINT_SHEET,
+  LANDSCAPE_SHEET_PRINT_SHEET,
   singlePrintPageInches,
 } from './compose.js';
 import {
@@ -66,6 +70,9 @@ import {
 } from './stickers.js';
 import {
   MAX_SHEET_ITEMS,
+  MAX_STRIP_SHEET_ITEMS,
+  MAX_POLAROID_SHEET_ITEMS,
+  MAX_LANDSCAPE_SHEET_ITEMS,
   loadAlbum,
   addStripToAlbum,
   removeStripFromAlbum,
@@ -96,34 +103,54 @@ function setText(el, text) {
 
 /* ——— Phase: Idle ——— */
 function openSetup() {
-  const cfg = getConfig();
-  const d = cfg.defaults || {};
-  const formatId = d.formatId || '2x6';
-  const fmt = getFormat(formatId, cfg);
-  const allowedPhotoCounts = fmt?.allowedPhotoCounts || cfg.allowedPhotoCounts || [3];
-  const defaultPhotoCount = allowedPhotoCounts.includes(d.photoCount) ? d.photoCount : allowedPhotoCounts[0];
-  const preferredTpl = getTemplate(d.templateId);
-  const tpl = pickTemplateForColor(formatId, defaultPhotoCount, 'navy', preferredTpl?.id || d.templateId);
-  patchSession({
-    formatId,
-    photoCount: defaultPhotoCount,
-    countdownSeconds: d.countdownSeconds ?? 3,
-    mirrorPreview:
-      d.mirrorPreview != null
-        ? !!d.mirrorPreview
-        : cfg.camera?.backend !== 'capture-card',
-    confettiOverlap: false,
-    filterId: d.filter || 'natural',
-    templateId: tpl?.id || d.templateId || 'anniversary-navy',
-    printCopies: getConfig().copies || 1,
-    safeBounds: false,
-  });
-  // Migrate removed landscape polaroid id
-  if (getSession().formatId === '6x4-polaroid') {
-    patchSession({ formatId: '4x6-polaroid', photoCount: 1, templateId: 'polaroid-4x6' });
+  try {
+    const cfg = getConfig();
+    const d = cfg.defaults || {};
+    const formatId = d.formatId || '2x6';
+    const fmt = getFormat(formatId, cfg);
+    const allowedPhotoCounts = fmt?.allowedPhotoCounts || cfg.allowedPhotoCounts || [3];
+    const defaultPhotoCount = allowedPhotoCounts.includes(d.photoCount) ? d.photoCount : allowedPhotoCounts[0];
+    const preferredTpl = getTemplate(d.templateId);
+    const tpl = pickTemplateForColor(formatId, defaultPhotoCount, 'navy', preferredTpl?.id || d.templateId);
+    patchSession({
+      formatId,
+      photoCount: defaultPhotoCount,
+      countdownSeconds: d.countdownSeconds ?? 3,
+      mirrorPreview:
+        d.mirrorPreview != null
+          ? !!d.mirrorPreview
+          : cfg.camera?.backend !== 'capture-card',
+      confettiOverlap: false,
+      filterId: d.filter || 'natural',
+      templateId: tpl?.id || d.templateId || 'anniversary-navy',
+      printCopies: getConfig().copies || 1,
+      safeBounds: false,
+    });
+    if (getSession().formatId === '6x4-polaroid') {
+      patchSession({ formatId: '4x6-polaroid', photoCount: 1, templateId: 'polaroid-4x6' });
+    }
+    renderSetup();
+    go(Phase.SETUP);
+  } catch (err) {
+    console.error('openSetup failed:', err);
+    go(Phase.SETUP, { force: true });
+    const hint = $('setup-preview-hint');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = err?.message || 'Setup could not fully load.';
+    }
   }
-  renderSetup();
-  go(Phase.SETUP);
+}
+
+/** Setup format picker — left-to-right display order. */
+const SETUP_FORMAT_ORDER = ['4x6-polaroid', '2x6', '4x6', '6x4-four'];
+
+function sortFormatsForSetup(formats) {
+  const rank = (id) => {
+    const i = SETUP_FORMAT_ORDER.indexOf(id);
+    return i >= 0 ? i : SETUP_FORMAT_ORDER.length;
+  };
+  return [...formats].sort((a, b) => rank(a.id) - rank(b.id) || String(a.id).localeCompare(b.id));
 }
 
 /* ——— Phase 1: Setup (NO timer) ——— */
@@ -131,21 +158,23 @@ function renderSetup() {
   const cfg = getConfig();
   const session0 = getSession();
   const cfgFormats = Array.isArray(cfg.formats) && cfg.formats.length ? cfg.formats : [];
-  const formatList = cfgFormats.length
-    ? cfgFormats
-    : [
-        {
-          id: '2x6',
-          label: '2x6 Strip',
-          allowedPhotoCounts: cfg.allowedPhotoCounts || [3],
-          canvasPx: { width: 600, height: 1800 },
-          physicalSizeInches: { width: 2, height: 6 },
-        },
-      ];
+  const formatList = sortFormatsForSetup(
+    cfgFormats.length
+      ? cfgFormats
+      : [
+          {
+            id: '2x6',
+            label: '2x6 Strip',
+            allowedPhotoCounts: cfg.allowedPhotoCounts || [3],
+            canvasPx: { width: 600, height: 1800 },
+            physicalSizeInches: { width: 2, height: 6 },
+          },
+        ]
+  );
 
   const formatId = formatList.some((f) => f.id === session0.formatId)
     ? session0.formatId
-    : formatList[0].id;
+    : formatList.find((f) => f.id === (cfg.defaults?.formatId || '2x6'))?.id || formatList[0].id;
   if (session0.formatId !== formatId) patchSession({ formatId });
 
   const session = getSession();
@@ -269,19 +298,19 @@ function fallbackSlotsForCount(n, baseW, baseH) {
   // 4×6 landscape collage (1800×1200) — narrower brand column, wider right photos
   if (baseW > baseH && n === 3) {
     return [
-      { x: 40, y: 40, w: 653, h: 538 },
-      { x: 737, y: 40, w: 1023, h: 538 },
-      { x: 737, y: 622, w: 1023, h: 538 },
+      { x: 36, y: 36, w: 656, h: 544 },
+      { x: 732, y: 36, w: 1032, h: 544 },
+      { x: 732, y: 620, w: 1032, h: 544 },
     ];
   }
 
   // 6×4 four-up — logo TL, large TR, 3 small bottom
   if (baseW > baseH && n === 4) {
     return [
-      { x: 671, y: 48, w: 1081, h: 593 },
-      { x: 49, y: 685, w: 538, h: 467 },
-      { x: 631, y: 685, w: 538, h: 467 },
-      { x: 1213, y: 685, w: 538, h: 467 },
+      { x: 664, y: 40, w: 1096, h: 604 },
+      { x: 41, y: 684, w: 546, h: 476 },
+      { x: 627, y: 684, w: 546, h: 476 },
+      { x: 1213, y: 684, w: 546, h: 476 },
     ];
   }
 
@@ -311,9 +340,9 @@ function fallbackSlotsForCount(n, baseW, baseH) {
     ];
   }
   return [
-    scale({ x: 34, y: 30, w: 532, h: 392 }),
-    scale({ x: 34, y: 446, w: 532, h: 392 }),
-    scale({ x: 34, y: 862, w: 532, h: 390 }),
+    scale({ x: 28, y: 26, w: 544, h: 409 }),
+    scale({ x: 28, y: 449, w: 544, h: 409 }),
+    scale({ x: 28, y: 872, w: 544, h: 411 }),
   ];
 }
 
@@ -344,6 +373,11 @@ async function renderOrientationPreview(photoCount) {
 
   mock.style.setProperty('--strip-px-w', String(baseW));
   mock.style.setProperty('--strip-px-h', String(baseH));
+  mock.style.setProperty('--strip-ar', `${baseW} / ${baseH}`);
+  mock.style.aspectRatio = `${baseW} / ${baseH}`;
+  if (stage) {
+    stage.style.aspectRatio = '';
+  }
   mock.dataset.orient = baseW >= baseH ? 'landscape' : 'portrait';
 
   const tplPreferred = getTemplate(session.templateId);
@@ -432,6 +466,10 @@ async function renderOrientationPreview(photoCount) {
   }
 
   syncSetupPreviewVideos();
+  requestAnimationFrame(() => {
+    mock?.style?.removeProperty('width');
+    mock?.style?.removeProperty('height');
+  });
 }
 
 function setupPreviewVideoEls() {
@@ -1238,8 +1276,9 @@ function fitStripPreviewToContainer() {
   const overlay = $('sticker-overlay');
   if (!wrap || !strip || !strip.width || !strip.height) return;
 
-  const availW = Math.max(1, wrap.clientWidth);
-  const availH = Math.max(1, wrap.clientHeight);
+  const pad = 4;
+  const availW = Math.max(1, wrap.clientWidth - pad);
+  const availH = Math.max(1, wrap.clientHeight - pad);
   const scale = Math.min(availW / strip.width, availH / strip.height);
   const w = Math.max(1, Math.floor(strip.width * scale));
   const h = Math.max(1, Math.floor(strip.height * scale));
@@ -1321,26 +1360,140 @@ async function startOver() {
 
 function printSheetForAlbumItems(strips) {
   const formatIds = (strips || []).map((s) => s.formatId || '2x6');
-  const allStrips = formatIds.every((id) => String(id).includes('2x6'));
+  const allStrips = formatIds.length > 0 && formatIds.every((id) => String(id).includes('2x6'));
   const allPolaroids = formatIds.every((id) => String(id).includes('polaroid'));
   const kind = allStrips ? 'strip' : allPolaroids ? 'polaroid' : 'mixed';
   return {
     sheet: STRIP_PRINT_SHEET,
     kind,
+    allStrips,
   };
 }
 
-function sheetSizeLabel(sheet, kind = 'strip') {
-  if (sheet === STRIP_PRINT_SHEET) {
-    if (kind === 'mixed') return 'A4 (21.00×29.70 cm), mixed formats 2-up/4-up';
-    if (kind === 'polaroid') return 'A4 (21.00×29.70 cm), polaroid 2-up/4-up';
-    return 'A4 (21.00×29.70 cm), strip rows';
-  }
-  return `${sheet.widthCm}×${sheet.heightCm} cm landscape`;
+function sheetSizeLabel(_sheet, kind = 'strip') {
+  if (kind === 'strip') return 'A4 portrait · 4 horizontal 2×6 strip rows';
+  if (kind === 'polaroid') return 'A4 portrait · 2×4 polaroid grid (8 slots)';
+  if (kind === 'sheet') return 'A4 portrait · 2×2 landscape sheets (4×6 / four-up)';
+  if (kind === 'mixed') return 'A4 (21.00×29.70 cm), mixed formats';
+  return 'A4 sheet';
 }
 
-function sheetLayoutForKind(_kind) {
+function sheetLayoutForKind(kind) {
+  if (kind === 'strip') return { marginIn: 0.35, gapIn: 0.18 };
+  if (kind === 'polaroid') return { marginIn: 0.4, gapIn: 0 };
+  if (kind === 'sheet') return { marginIn: 0.4, gapIn: 0 };
   return { marginIn: 0.05, gapIn: 0.055 };
+}
+
+function isAlbumStripFormat(formatId) {
+  return String(formatId || '').includes('2x6');
+}
+
+function isAlbumPolaroidFormat(formatId) {
+  return String(formatId || '').includes('polaroid');
+}
+
+function isAlbumLandscapeSheetFormat(formatId) {
+  const id = String(formatId || '').toLowerCase();
+  return id === '4x6' || id === '6x4-four';
+}
+
+async function albumPrintEligibility() {
+  const ids = [...(getSession().albumSelectedIds || [])];
+  const n = ids.length;
+  if (n < 1) {
+    return {
+      ok: false,
+      n,
+      kind: null,
+      meta: '0 selected · strips (4), sheets (4), or polaroids (8)',
+      status: '',
+    };
+  }
+  const strips = await getAlbumStripsByIds(ids);
+  if (strips.length !== n) {
+    return { ok: false, n, kind: null, meta: `${n} selected`, status: 'Some selected items are missing.' };
+  }
+  const allStrips = strips.every((s) => isAlbumStripFormat(s.formatId));
+  const allPolaroids = strips.every((s) => isAlbumPolaroidFormat(s.formatId));
+  const allSheets = strips.every((s) => isAlbumLandscapeSheetFormat(s.formatId));
+
+  if (allStrips) {
+    if (n > MAX_STRIP_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'strip',
+        meta: `${n} selected`,
+        status: `A4 strip sheet fits ${MAX_STRIP_SHEET_ITEMS} strips max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'strip',
+      strips,
+      meta: `${n} of ${MAX_STRIP_SHEET_ITEMS} strips · A4 stack ready`,
+      status: '',
+    };
+  }
+
+  if (allPolaroids) {
+    if (n > MAX_POLAROID_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'polaroid',
+        meta: `${n} selected`,
+        status: `A4 polaroid sheet fits ${MAX_POLAROID_SHEET_ITEMS} polaroids max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'polaroid',
+      strips,
+      meta: `${n} of ${MAX_POLAROID_SHEET_ITEMS} polaroids · A4 2×4 ready`,
+      status: '',
+    };
+  }
+
+  if (allSheets) {
+    if (n > MAX_LANDSCAPE_SHEET_ITEMS) {
+      return {
+        ok: false,
+        n,
+        kind: 'sheet',
+        meta: `${n} selected`,
+        status: `A4 sheet layout fits ${MAX_LANDSCAPE_SHEET_ITEMS} items max.`,
+      };
+    }
+    return {
+      ok: true,
+      n,
+      kind: 'sheet',
+      strips,
+      meta: `${n} of ${MAX_LANDSCAPE_SHEET_ITEMS} sheets · A4 2×2 ready`,
+      status: '',
+    };
+  }
+
+  return {
+    ok: false,
+    n,
+    kind: 'mixed',
+    meta: `${n} selected · one format only`,
+    status: 'Print one format per sheet — strips, 4×6/four-up sheets, or polaroids.',
+  };
+}
+
+async function syncAlbumSelectionMeta() {
+  const state = await albumPrintEligibility();
+  setText($('album-selection-meta'), state.meta);
+  const printBtn = $('btn-album-print');
+  if (printBtn) printBtn.disabled = !state.ok;
+  if (state.status) setText($('album-status'), state.status);
+  else setText($('album-status'), '');
 }
 
 /* ——— Album ——— */
@@ -1368,23 +1521,38 @@ function formatAlbumDate(iso) {
   }
 }
 
-function syncAlbumSelectionMeta() {
-  const n = (getSession().albumSelectedIds || []).length;
-  setText($('album-selection-meta'), `${n} of ${MAX_SHEET_ITEMS} selected`);
-  const printBtn = $('btn-album-print');
-  if (printBtn) printBtn.disabled = n < 1;
-}
-
-function toggleAlbumSelection(id) {
+function toggleAlbumSelection(id, formatId) {
   const current = [...(getSession().albumSelectedIds || [])];
   const idx = current.indexOf(id);
   if (idx >= 0) {
     current.splice(idx, 1);
   } else {
-    if (current.length >= MAX_SHEET_ITEMS) {
+    const family = albumFormatFamily(formatId);
+    if (current.length) {
+      const firstEl = document.querySelector(`#album-grid [data-id="${CSS.escape(current[0])}"]`);
+      const firstFam = albumFormatFamily(firstEl?.dataset.formatId || formatId);
+      if (firstFam.key !== family.key) {
+        setText(
+          $('album-status'),
+          'Select one format per print — strips, 4×6/four-up sheets, or polaroids.'
+        );
+        return;
+      }
+    }
+    const max =
+      family.key === 'polaroid'
+        ? MAX_POLAROID_SHEET_ITEMS
+        : family.key === 'sheet'
+          ? MAX_LANDSCAPE_SHEET_ITEMS
+          : MAX_STRIP_SHEET_ITEMS;
+    if (current.length >= max) {
       setText(
         $('album-status'),
-        `Sheet fits ${MAX_SHEET_ITEMS} items max — deselect one first.`
+        family.key === 'polaroid'
+          ? `A4 polaroid grid fits ${max} max — deselect one first.`
+          : family.key === 'sheet'
+            ? `A4 sheet grid fits ${max} max — deselect one first.`
+            : `A4 strip sheet fits ${max} strips max — deselect one first.`
       );
       return;
     }
@@ -1407,6 +1575,61 @@ function albumCardLayout(formatId) {
   return { ar, orient, label, formatId: id };
 }
 
+/** Group mixed formats so rows stay aligned (strips / sheets / polaroids). */
+function albumFormatFamily(formatId) {
+  const id = String(formatId || '2x6').toLowerCase();
+  if (id.includes('polaroid')) return { key: 'polaroid', title: 'Polaroid', order: 3 };
+  if (id.includes('6x4') || id === '4x6') return { key: 'sheet', title: 'Sheets', order: 2 };
+  return { key: 'strip', title: '2×6 Strips', order: 1 };
+}
+
+function createAlbumCard(item, selected) {
+  const layout = albumCardLayout(item.formatId || '2x6');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className =
+    `album-card album-card--${layout.orient}` + (selected.has(item.id) ? ' is-selected' : '');
+  btn.setAttribute('role', 'listitem');
+  btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
+  btn.dataset.id = item.id;
+  btn.dataset.formatId = layout.formatId;
+  btn.dataset.orient = layout.orient;
+  btn.style.setProperty('--thumb-ar', String(layout.ar));
+
+  const media = document.createElement('div');
+  media.className = 'album-card-media';
+
+  const img = document.createElement('img');
+  img.className = 'album-card-thumb';
+  img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
+  img.alt = `${layout.label} from ${formatAlbumDate(item.createdAt)}`;
+  img.draggable = false;
+  img.addEventListener(
+    'load',
+    () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        btn.style.setProperty('--thumb-ar', String(img.naturalWidth / img.naturalHeight));
+      }
+    },
+    { once: true }
+  );
+  media.appendChild(img);
+
+  const meta = document.createElement('div');
+  meta.className = 'album-card-meta';
+  const formatTag = document.createElement('span');
+  formatTag.className = 'album-card-format';
+  formatTag.textContent = layout.label;
+  const dateTag = document.createElement('span');
+  dateTag.className = 'album-card-date';
+  dateTag.textContent = formatAlbumDate(item.createdAt);
+  meta.append(formatTag, dateTag);
+
+  btn.append(media, meta);
+  btn.addEventListener('click', () => toggleAlbumSelection(item.id, item.formatId));
+  return btn;
+}
+
 async function renderAlbum() {
   const grid = $('album-grid');
   const empty = $('album-empty');
@@ -1422,43 +1645,32 @@ async function renderAlbum() {
   }
   if (empty) empty.hidden = true;
 
+  const families = new Map();
   for (const item of items) {
-    const layout = albumCardLayout(item.formatId || '2x6');
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className =
-      `album-card album-card--${layout.orient}` +
-      (selected.has(item.id) ? ' is-selected' : '');
-    btn.setAttribute('role', 'listitem');
-    btn.setAttribute('aria-pressed', selected.has(item.id) ? 'true' : 'false');
-    btn.dataset.id = item.id;
-    btn.dataset.formatId = layout.formatId;
-    btn.dataset.orient = layout.orient;
-    btn.style.setProperty('--thumb-ar', String(layout.ar));
+    const fam = albumFormatFamily(item.formatId || '2x6');
+    if (!families.has(fam.key)) families.set(fam.key, { ...fam, items: [] });
+    families.get(fam.key).items.push(item);
+  }
 
-    const media = document.createElement('div');
-    media.className = 'album-card-media';
+  const ordered = [...families.values()].sort((a, b) => a.order - b.order);
+  for (const fam of ordered) {
+    const section = document.createElement('section');
+    section.className = `album-section album-section--${fam.key}`;
+    section.setAttribute('aria-label', fam.title);
 
-    const img = document.createElement('img');
-    img.className = 'album-card-thumb';
-    img.src = item.thumbDataUrl || (item.pngBase64 ? `data:image/png;base64,${item.pngBase64}` : '');
-    img.alt = `${layout.label} from ${formatAlbumDate(item.createdAt)}`;
-    img.draggable = false;
-    media.appendChild(img);
+    const heading = document.createElement('h3');
+    heading.className = 'album-section-title';
+    heading.textContent = `${fam.title} · ${fam.items.length}`;
+    section.appendChild(heading);
 
-    const meta = document.createElement('div');
-    meta.className = 'album-card-meta';
-    const formatTag = document.createElement('span');
-    formatTag.className = 'album-card-format';
-    formatTag.textContent = layout.label;
-    const dateTag = document.createElement('span');
-    dateTag.className = 'album-card-date';
-    dateTag.textContent = formatAlbumDate(item.createdAt);
-    meta.append(formatTag, dateTag);
-
-    btn.append(media, meta);
-    btn.addEventListener('click', () => toggleAlbumSelection(item.id));
-    grid.appendChild(btn);
+    const row = document.createElement('div');
+    row.className = 'album-section-grid';
+    row.setAttribute('role', 'presentation');
+    for (const item of fam.items) {
+      row.appendChild(createAlbumCard(item, selected));
+    }
+    section.appendChild(row);
+    grid.appendChild(section);
   }
   syncAlbumSelectionMeta();
 }
@@ -1484,7 +1696,7 @@ async function saveCurrentStripToAlbum({ openAfter = false } = {}) {
   const count = await albumCount();
   setText(
     $('customize-status'),
-    `Saved to album (${count} item${count === 1 ? '' : 's'}). Pick up to ${MAX_SHEET_ITEMS} for one print sheet.`
+    `Saved to album (${count} item${count === 1 ? '' : 's'}). Print: up to ${MAX_STRIP_SHEET_ITEMS} strips, ${MAX_LANDSCAPE_SHEET_ITEMS} sheets, or ${MAX_POLAROID_SHEET_ITEMS} polaroids per A4 page.`
   );
   if (openAfter && newest) {
     openAlbum({ preselectId: newest.id, fromCustomize: true });
@@ -1513,43 +1725,65 @@ function leaveAlbum() {
 }
 
 async function printSelectedAlbumStrips() {
-  const ids = [...(getSession().albumSelectedIds || [])];
-  if (!ids.length) {
-    setText($('album-status'), 'Select at least one strip.');
-    return;
-  }
-  if (ids.length > MAX_SHEET_ITEMS) {
-    setText($('album-status'), `Print sheet fits ${MAX_SHEET_ITEMS} items max.`);
+  const eligibility = await albumPrintEligibility();
+  if (!eligibility.ok) {
+    setText(
+      $('album-status'),
+      eligibility.status ||
+        'Select strips, 4×6/four-up sheets, or polaroids (one format) for A4 print.'
+    );
+    syncAlbumSelectionMeta();
     return;
   }
 
   const printBtn = $('btn-album-print');
   if (printBtn) printBtn.disabled = true;
-  setText($('album-status'), 'Building print sheet…');
+  const kind = eligibility.kind;
+  setText(
+    $('album-status'),
+    kind === 'polaroid'
+      ? 'Building A4 polaroid grid…'
+      : kind === 'sheet'
+        ? 'Building A4 sheet grid…'
+        : 'Building A4 strip sheet…'
+  );
 
   try {
-    const strips = await getAlbumStripsByIds(ids);
-    if (!strips.length) throw new Error('Selected items were not found in the album.');
-    const sheetMeta = printSheetForAlbumItems(strips);
-    const sheetSpec = sheetMeta.sheet;
+    const strips = eligibility.strips;
     const images = [];
     for (const strip of strips) {
       images.push(await loadPngBase64(strip.pngBase64));
     }
-    const layout = sheetLayoutForKind(sheetMeta.kind);
-    const sheet = composePrintSheet(images, {
-      sheet: sheetSpec,
-      cutGuides: true,
-      formatIds: strips.map((s) => s.formatId || ''),
-      marginIn: layout.marginIn,
-      gapIn: layout.gapIn,
-    });
+    const sheet =
+      kind === 'polaroid'
+        ? composePolaroidA4Sheet(images, {
+            cutGuides: true,
+            marginIn: 0.4,
+            dangerZone: false,
+          })
+        : kind === 'sheet'
+          ? composeLandscapeSheetA4Sheet(images, {
+              cutGuides: true,
+              marginIn: 0.4,
+              dangerZone: false,
+            })
+          : composeStripA4Sheet(images, {
+              cutGuides: true,
+              marginIn: 0.35,
+              gapIn: 0.18,
+            });
     const pngBase64 = canvasToPngBase64(sheet);
+    const sheetSpec =
+      kind === 'polaroid'
+        ? POLAROID_PRINT_SHEET
+        : kind === 'sheet'
+          ? LANDSCAPE_SHEET_PRINT_SHEET
+          : STRIP_PRINT_SHEET;
     patchSession({
       pngBase64,
       printMode: 'sheet',
       formatId: 'a4-sheet',
-      printSheetKey: sheetMeta.kind,
+      printSheetKey: kind,
     });
 
     const cfg = getConfig();
@@ -1561,7 +1795,7 @@ async function printSelectedAlbumStrips() {
         autoDialog: false,
         mode: 'sheet',
         sheet: sheetSpec,
-        printKind: sheetMeta.kind,
+        printKind: kind,
         returnPhase: Phase.ALBUM,
         printAction: {
           type: 'silent',
@@ -1583,7 +1817,7 @@ async function printSelectedAlbumStrips() {
         autoDialog: false,
         mode: 'sheet',
         sheet: sheetSpec,
-        printKind: sheetMeta.kind,
+        printKind: kind,
         returnPhase: Phase.ALBUM,
         printAction: { type: 'dialog', buttonLabel: 'Open print dialog' },
       });
@@ -1592,7 +1826,7 @@ async function printSelectedAlbumStrips() {
     setText($('album-status'), err.message || 'Print sheet failed');
     if (getPhase() !== Phase.ALBUM) go(Phase.ALBUM, { force: true });
   } finally {
-    syncAlbumSelectionMeta();
+    void syncAlbumSelectionMeta();
   }
 }
 
@@ -1872,30 +2106,21 @@ function loadPrintStripImage(pngBase64) {
 }
 
 function applyPrintPreviewSizing(pageWidthIn, pageHeightIn) {
+  const screen = document.querySelector('.print-screen');
   const target = $('print-target');
   const img = $('print-strip-img');
-  const pane = document.querySelector('.print-preview-pane');
-  if (!target || !img) return;
-
-  const paneRect = pane?.getBoundingClientRect?.();
-  const maxWidth = Math.max(
-    220,
-    Math.round((paneRect?.width || window.innerWidth * 0.55) - 36)
-  );
-  const maxHeight = Math.max(
-    240,
-    Math.round((paneRect?.height || window.innerHeight * 0.7) - 48)
-  );
-  const baseWidthPx = Math.max(1, pageWidthIn * 100);
-  const baseHeightPx = Math.max(1, pageHeightIn * 100);
-  const scale = Math.min(maxWidth / baseWidthPx, maxHeight / baseHeightPx);
-  const width = Math.max(180, Math.round(baseWidthPx * scale));
-  const height = Math.max(180, Math.round(baseHeightPx * scale));
-
-  target.style.width = `${width}px`;
-  target.style.height = `${height}px`;
-  img.style.width = '100%';
-  img.style.height = '100%';
+  if (screen && pageWidthIn > 0 && pageHeightIn > 0) {
+    screen.style.setProperty('--paper-ar-w', String(pageWidthIn));
+    screen.style.setProperty('--paper-ar-h', String(pageHeightIn));
+  }
+  if (target) {
+    target.style.width = '';
+    target.style.height = '';
+  }
+  if (img) {
+    img.style.width = '';
+    img.style.height = '';
+  }
 }
 
 /** In-app print page → system print dialog (format-aware). */
@@ -1947,10 +2172,24 @@ async function openPrintPage(
       screen?.style?.setProperty('--sheet-w', `${A4_PAGE_WIDTH_IN}in`);
       screen?.style?.setProperty('--sheet-h', `${A4_PAGE_HEIGHT_IN}in`);
       screen?.setAttribute('data-print-mode', 'sheet');
-      const kind = printKind || (sheetSpec === POLAROID_PRINT_SHEET ? 'polaroid' : 'strip');
-      if (title) title.textContent = `Print ${kind} sheet`;
+      const kind =
+        printKind ||
+        (sheetSpec === POLAROID_PRINT_SHEET
+          ? 'polaroid'
+          : sheetSpec === LANDSCAPE_SHEET_PRINT_SHEET
+            ? 'sheet'
+            : 'strip');
+      const maxItems =
+        kind === 'polaroid'
+          ? MAX_POLAROID_SHEET_ITEMS
+          : kind === 'sheet'
+            ? MAX_LANDSCAPE_SHEET_ITEMS
+            : MAX_STRIP_SHEET_ITEMS;
+      const titleKind =
+        kind === 'sheet' ? '4×6 / four-up' : kind === 'polaroid' ? 'polaroid' : 'strip';
+      if (title) title.textContent = `Print ${titleKind} sheet`;
       if (hint) {
-        hint.innerHTML = `Review this preview first, then print. Paper: <strong>${sheetSizeLabel(sheetSpec, kind)}</strong> · up to ${MAX_SHEET_ITEMS} items.`;
+        hint.innerHTML = `Review this preview first, then print. Paper: <strong>${sheetSizeLabel(sheetSpec, kind)}</strong> · up to ${maxItems} items.`;
       }
       const img = $('print-strip-img');
       if (img) {
@@ -2244,10 +2483,19 @@ async function testPrint() {
 }
 
 /* ——— Bindings ——— */
+function bindControl(id, event, handler) {
+  const el = $(id);
+  if (!el) {
+    console.warn(`[photobooth] Missing #${id} — control not wired.`);
+    return;
+  }
+  el.addEventListener(event, handler);
+}
+
 function bind() {
-  $('btn-start').addEventListener('click', () => openSetup());
+  bindControl('btn-start', 'click', () => openSetup());
   $('btn-open-album')?.addEventListener('click', () => openAlbum());
-  $('btn-setup-cancel').addEventListener('click', async () => {
+  bindControl('btn-setup-cancel', 'click', async () => {
     await stopSetupPreviewCompletely();
     clearAll(getConfig().defaults);
     go(Phase.IDLE, { force: true });
@@ -2475,16 +2723,22 @@ function applyEventInfo() {
 }
 
 async function init() {
-  bind();
   try {
+    bind();
     await loadBootstrap();
     clearTemplateCache();
     applyEventInfo();
+    clearAll(getConfig().defaults);
+    showPhase(Phase.IDLE);
   } catch (err) {
-    console.error(err);
+    console.error('Photobooth init failed:', err);
+    showPhase(Phase.IDLE);
+    const hint = document.querySelector('[data-phase="idle"] .hint');
+    if (hint) {
+      hint.textContent =
+        'Something went wrong loading the app. Press F12 for details, then refresh the page.';
+    }
   }
-  clearAll(getConfig().defaults);
-  showPhase(Phase.IDLE);
 }
 
 init();

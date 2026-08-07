@@ -809,15 +809,29 @@ function pointInRoundedRect(px, py, x, y, w, h, radius) {
   return dx * dx + dy * dy <= r * r;
 }
 
+/** Signed distance outside a rounded rect (0 on edge, >0 outside, <0 inside). */
+function sdRoundedBox(px, py, x, y, w, h, radius) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const hx = w / 2 - r;
+  const hy = h / 2 - r;
+  const qx = Math.abs(px - cx) - hx;
+  const qy = Math.abs(py - cy) - hy;
+  const ox = Math.max(qx, 0);
+  const oy = Math.max(qy, 0);
+  return Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - r;
+}
+
 /**
- * Soft-corner gold frames drawn entirely outside each photo hole
- * (into gutters/margins — never into image placements).
+ * Flawless soft-corner gold frames: crisp inner lip flush to the rectangular
+ * photo hole, rounded outer edge with anti-aliased falloff (gutters only).
  */
 function drawSoftSlotBorders(png, slots, theme) {
-  const widthPx = Math.max(4, Math.min(24, Number(theme.slotBorderPx) || 14));
+  const widthPx = Math.max(4, Math.min(22, Number(theme.slotBorderPx) || 12));
   const radius = Math.max(
-    8,
-    Math.min(36, Number(theme.slotFrameRadius) || Math.round(widthPx * 1.1))
+    10,
+    Math.min(28, Number(theme.slotFrameRadius) || Math.round(widthPx * 1.25))
   );
 
   for (const s of slots) {
@@ -831,30 +845,49 @@ function drawSoftSlotBorders(png, slots, theme) {
     const oy = y - widthPx;
     const ow = w + widthPx * 2;
     const oh = h + widthPx * 2;
-    const rOuter = Math.min(radius + widthPx, ow / 2, oh / 2);
-    const rInner = Math.min(radius, w / 2, h / 2);
+    const rOuter = Math.min(radius + widthPx * 0.35, ow / 2, oh / 2);
     const peri = Math.max(1, 2 * (ow + oh));
 
-    const x0 = Math.max(0, Math.floor(ox));
-    const y0 = Math.max(0, Math.floor(oy));
-    const x1 = Math.min(png.width - 1, Math.ceil(ox + ow));
-    const y1 = Math.min(png.height - 1, Math.ceil(oy + oh));
+    const x0 = Math.max(0, Math.floor(ox - 1));
+    const y0 = Math.max(0, Math.floor(oy - 1));
+    const x1 = Math.min(png.width - 1, Math.ceil(ox + ow + 1));
+    const y1 = Math.min(png.height - 1, Math.ceil(oy + oh + 1));
 
     for (let py = y0; py <= y1; py++) {
       for (let px = x0; px <= x1; px++) {
-        const inOuter = pointInRoundedRect(px + 0.5, py + 0.5, ox, oy, ow, oh, rOuter);
-        if (!inOuter) continue;
-        const inInner = pointInRoundedRect(px + 0.5, py + 0.5, x, y, w, h, rInner);
-        if (inInner) continue;
+        const cx = px + 0.5;
+        const cy = py + 0.5;
+        // Sharp rectangular hole — photo fills flush with no corner gaps
+        if (cx >= x && cx < x + w && cy >= y && cy < y + h) continue;
 
-        const dLeft = px + 0.5 - ox;
-        const dRight = ox + ow - (px + 0.5);
-        const dTop = py + 0.5 - oy;
-        const dBottom = oy + oh - (py + 0.5);
-        const distOut = Math.min(dLeft, dRight, dTop, dBottom);
-        const depth = Math.max(0, Math.min(1, distOut / Math.max(1, widthPx)));
-        const along = ((px - ox) / Math.max(1, ow) + (py - oy) / peri) % 1;
-        setPixelOpaque(png, px, py, goldGradientColor(depth, theme, along));
+        const dOut = sdRoundedBox(cx, cy, ox, oy, ow, oh, rOuter);
+        if (dOut > 1.25) continue;
+
+        // Distance from photo hole (how far into the mat / border)
+        const dLeft = x - cx;
+        const dRight = cx - (x + w);
+        const dTop = y - cy;
+        const dBottom = cy - (y + h);
+        const distFromHole = Math.max(dLeft, dRight, dTop, dBottom);
+        if (distFromHole > widthPx + 1.25) continue;
+
+        const depth = Math.max(0, Math.min(1, distFromHole / Math.max(1, widthPx)));
+        // Bright inner lip against the photo, deeper antique toward outer edge
+        const lip = Math.max(0, 1 - distFromHole / 2.2);
+        const along = ((cx - ox) / Math.max(1, ow) + (cy - oy) / peri) % 1;
+        const col = goldGradientColor(Math.min(1, depth * 0.72 + lip * 0.45), theme, along);
+        const tip = theme.rimTip || [255, 240, 190];
+        const rgb = [
+          Math.min(255, Math.round(col[0] + (tip[0] - col[0]) * lip * 0.55)),
+          Math.min(255, Math.round(col[1] + (tip[1] - col[1]) * lip * 0.55)),
+          Math.min(255, Math.round(col[2] + (tip[2] - col[2]) * lip * 0.5)),
+        ];
+
+        let alpha = 1;
+        if (dOut > 0) alpha = Math.max(0, 1 - dOut);
+        if (distFromHole > widthPx) alpha = Math.min(alpha, Math.max(0, 1 - (distFromHole - widthPx)));
+        if (alpha >= 0.995) setPixelOpaque(png, px, py, rgb);
+        else if (alpha > 0.04) setPixel(png, px, py, rgb, alpha);
       }
     }
   }
@@ -878,10 +911,9 @@ function softFrameTheme(theme) {
   return {
     ...theme,
     softSlotFrames: true,
-    // Stay inside gutters (~44px) — never into photo holes
-    slotBorderPx: 14,
-    outerBorderPx: 16,
-    slotFrameRadius: 18,
+    slotBorderPx: 12,
+    outerBorderPx: 14,
+    slotFrameRadius: 16,
   };
 }
 
@@ -1402,18 +1434,19 @@ fs.mkdirSync(tplDir, { recursive: true });
  * clear gutters between photos, ~30% footer for the 20 Years mark.
  */
 function buildReferenceSlots3() {
-  const marginX = 34;
-  const marginTop = 30;
-  const gutter = 24;
-  const footerFrac = 0.3;
+  // Tight, even gutters — photos read flush with the strip frame
+  const marginX = 28;
+  const marginTop = 26;
+  const gutter = 14;
+  const footerFrac = 0.285;
   const photoBlockH = Math.round(TARGET_H * (1 - footerFrac));
   const w = TARGET_W - marginX * 2;
-  const usableH = photoBlockH - marginTop - 6;
+  const usableH = photoBlockH - marginTop - 4;
   const slotH = Math.floor((usableH - gutter * 2) / 3);
   const slots = [];
   let y = marginTop;
   for (let i = 0; i < 3; i++) {
-    const h = i === 2 ? photoBlockH - y - 8 : slotH;
+    const h = i === 2 ? photoBlockH - y - 4 : slotH;
     slots.push({ x: marginX, y, w, h: Math.max(120, h) });
     y += h + gutter;
   }
@@ -1479,8 +1512,8 @@ if (t4) buildClassic(4, t4.slots, 'strip-4.png', 'blue');
 function buildAligned4x6Grid(
   canvasW = 1800,
   canvasH = 1200,
-  margin = 40,
-  gutter = 44,
+  margin = 36,
+  gutter = 40,
   leftFrac = 0.38
 ) {
   const usableW = canvasW - margin * 2;
@@ -1504,7 +1537,7 @@ function buildAligned4x6Grid(
 }
 
 // 4×6 landscape — narrower brand column, wider right photos
-const GRID_4X6 = buildAligned4x6Grid(1800, 1200, 40, 44, 0.38);
+const GRID_4X6 = buildAligned4x6Grid(1800, 1200, 36, 40, 0.38);
 const SLOTS_4X6_3 = GRID_4X6.slots;
 const BRAND_4X6 = GRID_4X6.brand;
 console.log('4×6 aligned grid', {
@@ -1649,8 +1682,8 @@ function buildFourUp6x4(themeKey = 'blue') {
   const theme = softFrameTheme(ANNIV_THEMES[themeKey] || ANNIV_THEMES.blue);
   const W = 1800;
   const H = 1200;
-  const margin = 48;
-  const gutter = 44;
+  const margin = 40;
+  const gutter = 40;
   const usableW = W - margin * 2;
   const usableH = H - margin * 2;
 
